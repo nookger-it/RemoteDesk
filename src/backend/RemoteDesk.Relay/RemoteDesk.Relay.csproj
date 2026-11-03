@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>dotnet-RemoteDesk.Relay-0b2291d0-6ed5-490a-a7f7-c0a4e0872c38</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.10" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\RemoteDesk.Contracts\RemoteDesk.Contracts.csproj" />
+    <ProjectReference Include="..\..\transports\RemoteDesk.Transport.Abstractions\RemoteDesk.Transport.Abstractions.csproj" />
+    <ProjectReference Include="..\RemoteDesk.Application\RemoteDesk.Application.csproj" />
+    <ProjectReference Include="..\..\transports\RemoteDesk.Transport.LocalRelay\RemoteDesk.Transport.LocalRelay.csproj" />
+  </ItemGroup>
+</Project>

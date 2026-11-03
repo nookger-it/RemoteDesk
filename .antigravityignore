@@ -1,0 +1,27 @@
+# .NET / C# Build & Cache
+**/bin/
+**/obj/
+**/*.user
+**/*.suo
+.vs/
+TestResults/
+
+# Next.js / Node.js (Dashboard)
+**/node_modules/
+**/.next/
+**/out/
+**/dist/
+**/build/
+**/package-lock.json
+**/pnpm-lock.yaml
+**/yarn.lock
+
+# Database & Logs
+**/*.db
+**/*.db-shm
+**/*.db-wal
+**/*.sqlite
+**/*.log
+
+# Git
+.git/

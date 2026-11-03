@@ -1,0 +1,27 @@
+# .NET build outputs
+bin/
+obj/
+artifacts/
+Agent_For_Other_PC/agent-service/
+Agent_For_Other_PC/agent-interactive/
+!Agent_For_Other_PC/*.bat
+!Agent_For_Other_PC/*.txt
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+
+# Local SQLite database & runtime identities
+*.db
+*.db-shm
+*.db-wal
+device-identity.json
+
+# IDE / OS
+.vs/
+.vscode/
+*.user
+*.suo
+Thumbs.db
+.DS_Store

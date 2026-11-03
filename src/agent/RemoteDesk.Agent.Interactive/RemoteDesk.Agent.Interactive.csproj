@@ -1,0 +1,22 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\RemoteDesk.Agent.Contracts\RemoteDesk.Agent.Contracts.csproj" />
+    <ProjectReference Include="..\..\transports\RemoteDesk.Transport.Abstractions\RemoteDesk.Transport.Abstractions.csproj" />
+    <ProjectReference Include="..\..\transports\RemoteDesk.Transport.DirectLan\RemoteDesk.Transport.DirectLan.csproj" />
+    <ProjectReference Include="..\..\transports\RemoteDesk.Transport.LocalRelay\RemoteDesk.Transport.LocalRelay.csproj" />
+    <ProjectReference Include="..\..\backend\RemoteDesk.Application\RemoteDesk.Application.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Drawing.Common" Version="10.0.14" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>

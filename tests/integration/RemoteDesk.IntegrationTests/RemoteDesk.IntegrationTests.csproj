@@ -1,0 +1,34 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.14" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\src\backend\RemoteDesk.Api\RemoteDesk.Api.csproj" />
+    <ProjectReference Include="..\..\..\src\backend\RemoteDesk.Application\RemoteDesk.Application.csproj" />
+    <ProjectReference Include="..\..\..\src\backend\RemoteDesk.Infrastructure\RemoteDesk.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\..\src\backend\RemoteDesk.Contracts\RemoteDesk.Contracts.csproj" />
+    <ProjectReference Include="..\..\..\src\transports\RemoteDesk.Transport.Abstractions\RemoteDesk.Transport.Abstractions.csproj" />
+    <ProjectReference Include="..\..\..\src\transports\RemoteDesk.Transport.DirectLan\RemoteDesk.Transport.DirectLan.csproj" />
+    <ProjectReference Include="..\..\..\src\agent\RemoteDesk.Agent.Contracts\RemoteDesk.Agent.Contracts.csproj" />
+    <ProjectReference Include="..\..\..\src\agent\RemoteDesk.Agent.Interactive\RemoteDesk.Agent.Interactive.csproj" />
+    <ProjectReference Include="..\..\..\src\transports\RemoteDesk.Transport.LocalRelay\RemoteDesk.Transport.LocalRelay.csproj" />
+  </ItemGroup>
+
+</Project>

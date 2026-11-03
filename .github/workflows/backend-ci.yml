@@ -1,0 +1,31 @@
+name: Backend CI
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'src/backend/**'
+      - 'src/transports/**'
+      - 'tests/**'
+      - 'Directory.Build.props'
+      - 'Directory.Packages.props'
+      - 'global.json'
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Restore dependencies
+        run: dotnet restore RemoteDesk.sln
+      - name: Build Solution
+        run: dotnet build RemoteDesk.sln --no-restore --configuration Release
+      - name: Run Tests
+        run: dotnet test RemoteDesk.sln --no-build --configuration Release --verbosity normal
+

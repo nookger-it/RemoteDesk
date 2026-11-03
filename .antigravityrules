@@ -1,0 +1,42 @@
+# กฎการทำงานหลักของ AI (สำคัญมาก)
+- ห้ามสแกนอ่านไฟล์ทั้งหมดในโปรเจกต์ ให้ดูตำแหน่งไฟล์จากหัวข้อ "Monorepo File Map" ในเอกสารนี้เท่านั้น
+- อ่านและแก้ไขเฉพาะไฟล์ที่เกี่ยวข้องกับคำสั่งในรอบนั้นๆ
+- ตอบกลับและอธิบายเป็นภาษาไทยเสมอ
+
+# ข้อมูลโปรเจกต์: LAN First Remote Desktop (V1)
+- **รูปแบบ:** ระบบ Remote Desktop ในวง LAN (Hybrid: Direct LAN + Local Server Relay) แบบ Monorepo
+- **เป้าหมาย V1:** ลงทะเบียนเครื่อง, Heartbeat, ดูจอ Real-time, คุม Mouse/Keyboard, Direct LAN + Fallback Relay, จำกัดสูงสุด 5 Sessions พร้อมกัน (ควบคุมฝั่ง Server แบบ Atomic), มีระบบ Auth/RBAC/Encryption/Audit Log
+- **สิ่งที่ยังไม่ทำใน V1 (ห้ามเขียนโค้ดเผื่อ):** Internet Remote, File Transfer, Audio, Clipboard, Session Recording, Mobile Control, Hidden Mode
+
+# Tech Stack
+- **Backend / Signaling / Relay:** ASP.NET Core / .NET LTS (REST + WebSocket)
+- **Database:** SQLite (สำหรับ Pilot V1) และเตรียมขยายเป็น PostgreSQL
+- **Windows Agent:** C# / .NET Worker Service (`Agent.Service`) + Interactive Process (`Agent.Interactive`) + Windows APIs[cite: 1]
+- **Windows Operator Client:** C# WPF หรือ WinUI 3[cite: 1]
+- **Web Dashboard:** Next.js + TypeScript[cite: 1]
+
+# Monorepo File Map (พิกัดไฟล์ทั้งหมดในโปรเจกต์)
+- **Backend (`src/backend/`):**[cite: 1]
+  - `RemoteDesk.Contracts/` -> เก็บ DTO, Interfaces, Protocol Contracts[cite: 1]
+  - `RemoteDesk.Domain/` -> เก็บ Entities (organizations, sites, users, roles, devices, sessions, audit_logs) และ Business Rules[cite: 1]
+  - `RemoteDesk.Application/` -> เก็บ Use Cases และ Session Coordinator (ล็อก 5 slots แบบ Atomic)[cite: 1]
+  - `RemoteDesk.Infrastructure/` -> เก็บ Database (SQLite/PostgreSQL), Logging, Configuration[cite: 1]
+  - `RemoteDesk.Api/` -> เก็บ REST API และ Authentication[cite: 1]
+  - `RemoteDesk.Signaling/` -> เก็บ WebSocket Signaling, Presence, Negotiation[cite: 1]
+  - `RemoteDesk.Relay/` -> เก็บ Local Relay Service รับส่ง Encrypted Stream (Port 52100)[cite: 1]
+- **Windows Agent (`src/agent/`):**[cite: 1]
+  - `RemoteDesk.Agent.Service/` -> รันเป็น Windows Service (Session 0), จัดการ Device ID (UUID), Heartbeat, เปิด/ปิด Worker[cite: 1]
+  - `RemoteDesk.Agent.Interactive/` -> รันใน User Session, จับภาพหน้าจอ (เริ่มต้น 1280x720 @ 10-15 FPS ห้ามส่ง PNG เต็มจอทุกเฟรม), รับ Mouse/Keyboard, คุยกับ Service ผ่าน IPC[cite: 1]
+  - `RemoteDesk.Agent.Contracts/` -> สัญญาการสื่อสารของฝั่ง Agent[cite: 1]
+- **Transports (`src/transports/`):**[cite: 1]
+  - `RemoteDesk.Transport.Abstractions/` -> เก็บ `IRemoteTransport` Interface[cite: 1]
+  - `RemoteDesk.Transport.DirectLan/` -> เก็บระบบเชื่อมต่อตรงผ่าน LAN (Port 52000-52010)[cite: 1]
+  - `RemoteDesk.Transport.LocalRelay/` -> เก็บระบบเชื่อมต่อผ่าน Relay[cite: 1]
+- **Clients:**
+  - `src/operator/RemoteDesk.Operator.Windows/` -> โปรแกรมฝั่งเจ้าหน้าที่บน Windows[cite: 1]
+  - `src/dashboard/remotedesk-dashboard/` -> หน้าเว็บจัดการด้วย Next.js[cite: 1]
+
+# กฎเหล็กทางสถาปัตยกรรม (ต้องทำตามทุกครั้งที่เขียนโค้ด)
+1. **การอ้างอิง (Dependency):** `Domain` ห้ามอ้างอิง `Infrastructure` หรือ `UI` | `Application` อ้างอิงได้แค่ `Domain` กับ `Contracts` | `Dashboard` ต้องเรียกผ่าน `RemoteDesk.Api` เท่านั้น ห้ามต่อ Database ตรง[cite: 1]
+2. **การแยกส่วน Agent:** ห้ามใส่โค้ดจับภาพหน้าจอหรือควบคุมเมาส์/คีย์บอร์ดใน `Agent.Service` เด็ดขาด ต้องใส่ไว้ใน `Agent.Interactive` เท่านั้น[cite: 1]
+3. **ความปลอดภัยและ Session:** ใช้ `Device ID (UUID)` แทนตัวตนเครื่อง (ห้ามยึดตาม IP) | ทุกการเชื่อมต่อต้องมี Short-lived Session Ticket จาก API | ต้องแสดงสถานะบนหน้าจอเครื่องปลายทางเสมอเมื่อมีการ Remote[cite: 1]

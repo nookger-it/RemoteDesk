@@ -1,0 +1,28 @@
+name: Agent & Operator CI
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'src/agent/**'
+      - 'src/operator/**'
+      - 'src/transports/**'
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  build-windows-clients:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Build Agent Service
+        run: dotnet build src/agent/RemoteDesk.Agent.Service/RemoteDesk.Agent.Service.csproj --configuration Release
+      - name: Build Agent Interactive
+        run: dotnet build src/agent/RemoteDesk.Agent.Interactive/RemoteDesk.Agent.Interactive.csproj --configuration Release
+      - name: Build Operator Windows Client
+        run: dotnet build src/operator/RemoteDesk.Operator.Windows/RemoteDesk.Operator.Windows.csproj --configuration Release
+

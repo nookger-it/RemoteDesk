@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>dotnet-RemoteDesk.Agent.Service-3f8fbd83-7e1f-4933-900b-3e094d772fcf</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.10" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\RemoteDesk.Agent.Contracts\RemoteDesk.Agent.Contracts.csproj" />
+    <ProjectReference Include="..\..\backend\RemoteDesk.Contracts\RemoteDesk.Contracts.csproj" />
+    <ProjectReference Include="..\..\transports\RemoteDesk.Transport.Abstractions\RemoteDesk.Transport.Abstractions.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,71 @@
+<Window x:Class="RemoteDesk.Operator.Windows.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="RemoteDesk Operator Client — V1 LAN-First"
+        Height="760" Width="1220"
+        Background="#0F172A" Foreground="#F8FAFC"
+        PreviewKeyDown="Window_PreviewKeyDown"
+        PreviewKeyUp="Window_PreviewKeyUp">
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Top Toolbar: API & Connection Controls -->
+        <Border Grid.Row="0" Background="#1E293B" CornerRadius="8" Padding="12" Margin="0,0,0,12">
+            <DockPanel LastChildFill="True">
+                <StackPanel Orientation="Horizontal" DockPanel.Dock="Left">
+                    <TextBlock Text="API URL:" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="#94A3B8"/>
+                    <TextBox x:Name="ApiUrlTextBox" Text="http://localhost:5100" Width="165" VerticalContentAlignment="Center" Padding="6,4" Margin="0,0,6,0"/>
+                    <Button x:Name="RefreshDevicesBtn" Content="Refresh" Padding="8,6" Margin="0,0,6,0" Click="RefreshDevicesBtn_Click"/>
+                    <ComboBox x:Name="DevicesComboBox" Width="225" VerticalContentAlignment="Center" Margin="0,0,8,0" DisplayMemberPath="DisplayLabel"/>
+                    <CheckBox x:Name="AllowInputCheckBox" Content="Control Mouse/KB" IsChecked="True" VerticalAlignment="Center" Foreground="#E2E8F0" Margin="0,0,8,0"/>
+                    <ComboBox x:Name="QualityComboBox" Width="125" SelectedIndex="0" VerticalContentAlignment="Center" Margin="0,0,8,0" SelectionChanged="QualityComboBox_SelectionChanged">
+                        <ComboBoxItem Content="Sharp (High HQ)"/>
+                        <ComboBoxItem Content="Fast (Low Latency)"/>
+                    </ComboBox>
+                    <Button x:Name="ConnectBtn" Content="Connect (LAN)" Padding="10,6" Background="#0284C7" Foreground="White" FontWeight="SemiBold" Margin="0,0,6,0" Click="ConnectBtn_Click"/>
+                    <Button x:Name="DisconnectBtn" Content="Disconnect" Padding="10,6" Background="#DC2626" Foreground="White" FontWeight="SemiBold" IsEnabled="False" Margin="0,0,6,0" Click="DisconnectBtn_Click"/>
+                    <Button x:Name="SnapshotBtn" Content="Snapshot" Padding="8,6" Background="#334155" Foreground="White" IsEnabled="False" Margin="0,0,6,0" Click="SnapshotBtn_Click"/>
+                    <Button x:Name="SendClipboardBtn" Content="Send Text" Padding="8,6" Background="#334155" Foreground="White" IsEnabled="False" Margin="0,0,6,0" Click="SendClipboardBtn_Click"/>
+                    <Button x:Name="FullScreenBtn" Content="Full Screen" Padding="8,6" Background="#334155" Foreground="White" Click="FullScreenBtn_Click"/>
+                </StackPanel>
+                <TextBlock x:Name="StatusTextBlock" Text="Status: Ready" VerticalAlignment="Center" HorizontalAlignment="Right" Foreground="#38BDF8" FontWeight="SemiBold"/>
+            </DockPanel>
+        </Border>
+
+        <!-- Telemetry Bar -->
+        <Border Grid.Row="1" Background="#0B1120" CornerRadius="6" Padding="12,8" Margin="0,0,0,12">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock x:Name="TransportBadgeText" Text="Mode: Disconnected" Foreground="#22C55E" FontWeight="Bold" Margin="0,0,20,0"/>
+                <TextBlock x:Name="TelemetryFpsText" Text="FPS: 0.0" Foreground="#E2E8F0" Margin="0,0,20,0"/>
+                <TextBlock x:Name="TelemetryLatencyText" Text="Latency: 0.0 ms" Foreground="#E2E8F0" Margin="0,0,20,0"/>
+                <TextBlock x:Name="TelemetryBandwidthText" Text="Bandwidth: 0.0 kbps" Foreground="#E2E8F0" Margin="0,0,20,0"/>
+                <TextBlock x:Name="TelemetryFramesText" Text="Frames: 0" Foreground="#94A3B8" Margin="0,0,20,0"/>
+                <TextBlock x:Name="TelemetryInputText" Text="Input Events: 0" Foreground="#38BDF8"/>
+            </StackPanel>
+        </Border>
+
+        <!-- Remote Screen Viewer Canvas -->
+        <Border Grid.Row="2" Background="#020617" BorderBrush="#334155" BorderThickness="1" CornerRadius="8" ClipToBounds="True">
+            <Grid>
+                <TextBlock x:Name="PlaceholderText"
+                           Text="Select an Online Device and click 'Connect (Direct LAN)' to start encrypted real-time screen viewing and input control."
+                           HorizontalAlignment="Center"
+                           VerticalAlignment="Center"
+                           Foreground="#64748B"
+                           FontSize="15"/>
+                <Image x:Name="RemoteScreenImage"
+                       Stretch="Uniform"
+                       Focusable="True"
+                       RenderOptions.BitmapScalingMode="HighQuality"
+                       MouseMove="RemoteScreenImage_MouseMove"
+                       MouseDown="RemoteScreenImage_MouseDown"
+                       MouseUp="RemoteScreenImage_MouseUp"
+                       MouseWheel="RemoteScreenImage_MouseWheel"/>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

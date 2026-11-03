@@ -1,0 +1,29 @@
+name: Dashboard CI
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'src/dashboard/**'
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  build-dashboard:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/dashboard/remotedesk-dashboard
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: src/dashboard/remotedesk-dashboard/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Build Next.js Dashboard
+        run: npm run build
+

@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <ProjectReference Include="..\RemoteDesk.Application\RemoteDesk.Application.csproj" />
+    <ProjectReference Include="..\RemoteDesk.Infrastructure\RemoteDesk.Infrastructure.csproj" />
+    <ProjectReference Include="..\RemoteDesk.Signaling\RemoteDesk.Signaling.csproj" />
+    <ProjectReference Include="..\RemoteDesk.Contracts\RemoteDesk.Contracts.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+</Project>
