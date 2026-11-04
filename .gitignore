@@ -6,6 +6,12 @@ Agent_For_Other_PC/agent-service/
 Agent_For_Other_PC/agent-interactive/
 !Agent_For_Other_PC/*.bat
 !Agent_For_Other_PC/*.txt
+Installers/1_Server_Setup/api/
+Installers/1_Server_Setup/relay/
+Installers/2_Operator_Setup/app/
+Installers/3_Agent_Setup/agent-service/
+Installers/3_Agent_Setup/agent-interactive/
+Installers/*.zip
 
 # Node / Next.js
 node_modules/

@@ -39,15 +39,36 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
 
+        var configPath = Path.Combine(AppContext.BaseDirectory, "server_url.txt");
+        if (File.Exists(configPath))
+        {
+            var savedUrl = File.ReadAllText(configPath).Trim();
+            if (!string.IsNullOrWhiteSpace(savedUrl))
+            {
+                ApiUrlTextBox.Text = savedUrl;
+            }
+        }
+
         _telemetryTimer = new DispatcherTimer
         {
             Interval = TimeSpan.FromMilliseconds(500)
         };
         _telemetryTimer.Tick += TelemetryTimer_Tick;
+        Loaded += async (_, _) => await ReloadDevicesListAsync();
     }
 
     private async void RefreshDevicesBtn_Click(object sender, RoutedEventArgs e)
     {
+        try
+        {
+            var configPath = Path.Combine(AppContext.BaseDirectory, "server_url.txt");
+            File.WriteAllText(configPath, ApiUrlTextBox.Text.Trim());
+        }
+        catch
+        {
+            // Ignore write errors in read-only directories
+        }
+
         await ReloadDevicesListAsync();
     }
 
