@@ -84,6 +84,9 @@ export default function OverviewPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [bannerMessage, setBannerMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [newDeviceName, setNewDeviceName] = useState("");
+  const [newDeviceIp, setNewDeviceIp] = useState("");
+  const [newDevicePort, setNewDevicePort] = useState("52000");
 
   const fetchDashboardData = useCallback(async () => {
     setLoading(true);
@@ -133,6 +136,79 @@ export default function OverviewPage() {
       }
     } catch (err) {
       setBannerMessage(`Failed to update device status: ${String(err)}`);
+    }
+  }
+
+  async function handleAddManualDevice(e: React.FormEvent) {
+    e.preventDefault();
+    if (!newDeviceName.trim() || !newDeviceIp.trim()) {
+      setBannerMessage("กรุณากรอกชื่อเครื่อง (Device Name) และ IP Address ให้ครบถ้วน");
+      return;
+    }
+    try {
+      const portNum = parseInt(newDevicePort, 10) || 52000;
+      const res = await fetch(`${apiUrl}/api/devices/manual`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          hostname: newDeviceName.trim(),
+          ipAddress: newDeviceIp.trim(),
+          port: portNum,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setBannerMessage(`เพิ่มอุปกรณ์ '${data.hostname}' (${newDeviceIp.trim()}:${portNum}) เรียบร้อยแล้ว`);
+        setNewDeviceName("");
+        setNewDeviceIp("");
+        setNewDevicePort("52000");
+        await fetchDashboardData();
+      } else {
+        setBannerMessage(`ไม่สามารถเพิ่มอุปกรณ์ได้: ${data.message || data.error}`);
+      }
+    } catch (err) {
+      setBannerMessage(`เกิดข้อผิดพลาดในการเพิ่มอุปกรณ์: ${String(err)}`);
+    }
+  }
+
+  async function handleRenameDevice(device: DeviceSummaryDto) {
+    const nextName = window.prompt(`แก้ไขชื่ออุปกรณ์ (ชื่อเดิม: ${device.hostname}):`, device.hostname);
+    if (!nextName || !nextName.trim() || nextName.trim() === device.hostname) return;
+    try {
+      const res = await fetch(`${apiUrl}/api/devices/${device.id}/rename`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ newHostname: nextName.trim() }),
+      });
+      if (res.ok) {
+        setBannerMessage(`เปลี่ยนชื่ออุปกรณ์เป็น '${nextName.trim()}' เรียบร้อยแล้ว`);
+        await fetchDashboardData();
+      } else {
+        const data = await res.json();
+        setBannerMessage(`เปลี่ยนชื่อไม่สำเร็จ: ${data.message || data.error}`);
+      }
+    } catch (err) {
+      setBannerMessage(`เกิดข้อผิดพลาดในการเปลี่ยนชื่อ: ${String(err)}`);
+    }
+  }
+
+  async function handleDeleteDevice(device: DeviceSummaryDto) {
+    if (!window.confirm(`ยืนยันการลบอุปกรณ์ '${device.hostname}' (${device.id.slice(0, 8)}) ออกจากระบบ?`)) {
+      return;
+    }
+    try {
+      const res = await fetch(`${apiUrl}/api/devices/${device.id}`, {
+        method: "DELETE",
+      });
+      if (res.ok) {
+        setBannerMessage(`ลบอุปกรณ์ '${device.hostname}' ออกจากระบบเรียบร้อยแล้ว`);
+        await fetchDashboardData();
+      } else {
+        const data = await res.json();
+        setBannerMessage(`ลบอุปกรณ์ไม่สำเร็จ: ${data.message || data.error}`);
+      }
+    } catch (err) {
+      setBannerMessage(`เกิดข้อผิดพลาดในการลบอุปกรณ์: ${String(err)}`);
     }
   }
 
@@ -319,6 +395,77 @@ export default function OverviewPage() {
 
       {activeTab === "DEVICES" && (
         <>
+          <form
+            onSubmit={handleAddManualDevice}
+            style={{
+              backgroundColor: "#1e293b",
+              padding: "14px 16px",
+              borderRadius: "8px",
+              marginBottom: "12px",
+              border: "1px solid #0d9488",
+              display: "flex",
+              gap: "10px",
+              alignItems: "center",
+              flexWrap: "wrap",
+            }}
+          >
+            <span style={{ fontWeight: 600, color: "#2dd4bf", fontSize: "14px" }}>+ เพิ่มอุปกรณ์ใหม่ (Manual LAN):</span>
+            <input
+              placeholder="ชื่อเครื่อง (เช่น ห้องบัญชี-PC1)"
+              value={newDeviceName}
+              onChange={(e) => setNewDeviceName(e.target.value)}
+              style={{
+                padding: "8px 12px",
+                borderRadius: "6px",
+                border: "1px solid #475569",
+                backgroundColor: "#0f172a",
+                color: "#f8fafc",
+                minWidth: "200px",
+                flex: 1,
+              }}
+            />
+            <input
+              placeholder="IP Address (เช่น 192.168.1.55)"
+              value={newDeviceIp}
+              onChange={(e) => setNewDeviceIp(e.target.value)}
+              style={{
+                padding: "8px 12px",
+                borderRadius: "6px",
+                border: "1px solid #475569",
+                backgroundColor: "#0f172a",
+                color: "#f8fafc",
+                width: "190px",
+              }}
+            />
+            <input
+              placeholder="Port (52000)"
+              value={newDevicePort}
+              onChange={(e) => setNewDevicePort(e.target.value)}
+              style={{
+                padding: "8px 12px",
+                borderRadius: "6px",
+                border: "1px solid #475569",
+                backgroundColor: "#0f172a",
+                color: "#f8fafc",
+                width: "90px",
+              }}
+            />
+            <button
+              type="submit"
+              style={{
+                padding: "8px 16px",
+                borderRadius: "6px",
+                border: "none",
+                backgroundColor: "#0d9488",
+                color: "#fff",
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              + เพิ่มอุปกรณ์
+            </button>
+          </form>
+
           <section
             style={{
               backgroundColor: "#1e293b",
@@ -424,7 +571,7 @@ export default function OverviewPage() {
                           ? `${device.endpoints[0].address}:${device.endpoints[0].port}`
                           : "N/A"}
                       </td>
-                      <td style={{ padding: "12px 16px", display: "flex", gap: "8px" }}>
+                      <td style={{ padding: "12px 16px", display: "flex", gap: "6px", flexWrap: "wrap" }}>
                         <button
                           disabled={!device.isOnline}
                           onClick={() => handleStartSession(device)}
@@ -439,6 +586,20 @@ export default function OverviewPage() {
                           }}
                         >
                           Connect LAN
+                        </button>
+                        <button
+                          onClick={() => handleRenameDevice(device)}
+                          style={{
+                            padding: "6px 10px",
+                            borderRadius: "6px",
+                            border: "1px solid #38bdf8",
+                            backgroundColor: "transparent",
+                            color: "#38bdf8",
+                            cursor: "pointer",
+                            fontSize: "12px",
+                          }}
+                        >
+                          แก้ชื่อ (Rename)
                         </button>
                         {(device.status === "Revoked" || device.status === "Disabled") && (
                           <button
@@ -476,19 +637,18 @@ export default function OverviewPage() {
                           Disable
                         </button>
                         <button
-                          disabled={device.status === "Revoked"}
-                          onClick={() => handleRevokeOrDisable(device.id, true)}
+                          onClick={() => handleDeleteDevice(device)}
                           style={{
                             padding: "6px 10px",
                             borderRadius: "6px",
                             border: "1px solid #ef4444",
-                            backgroundColor: "transparent",
-                            color: "#f87171",
+                            backgroundColor: "#7f1d1d",
+                            color: "#fecaca",
                             cursor: "pointer",
                             fontSize: "12px",
                           }}
                         >
-                          Revoke
+                          ลบ (Delete)
                         </button>
                       </td>
                     </tr>

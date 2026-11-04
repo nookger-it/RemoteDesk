@@ -184,7 +184,11 @@ public sealed class RemoteDeskManagementService : IRemoteDeskManagementService
         {
             device.OrganizationId = request.OrganizationId;
             device.SiteId = request.SiteId;
-            device.Hostname = request.Hostname.Trim();
+            // Preserve custom hostname if an admin already renamed this device
+            if (string.IsNullOrWhiteSpace(device.Hostname))
+            {
+                device.Hostname = request.Hostname.Trim();
+            }
             device.AgentVersion = request.AgentVersion.Trim();
             device.PublicKey = request.PublicKey.Trim();
             device.LastSeenAt = now;
@@ -416,6 +420,132 @@ public sealed class RemoteDeskManagementService : IRemoteDeskManagementService
 
         var summary = await GetDeviceByIdAsync(deviceId, cancellationToken);
         return OperationResult<DeviceSummaryDto>.Success(summary!);
+    }
+
+    public async Task<OperationResult<DeviceSummaryDto>> AddManualDeviceAsync(
+        AddManualDeviceRequest request,
+        string sourceIp,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(request.Hostname) || string.IsNullOrWhiteSpace(request.IpAddress))
+        {
+            return OperationResult<DeviceSummaryDto>.Failure("INVALID_REQUEST", "Hostname and IP address are required.");
+        }
+
+        var orgId = request.OrganizationId ?? PilotDefaults.OrganizationId;
+        var siteId = request.SiteId ?? PilotDefaults.HeadquartersSiteId;
+        var port = request.Port is > 0 and <= 65535 ? request.Port : DefaultDirectLanPort;
+        var now = DateTimeOffset.UtcNow;
+
+        var device = new Device
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = orgId,
+            SiteId = siteId,
+            Hostname = request.Hostname.Trim(),
+            AgentVersion = "Manual-LAN",
+            PublicKey = "manual-lan-entry",
+            LastSeenAt = now,
+            Status = DeviceStatus.Online
+        };
+
+        _db.Devices.Add(device);
+        _db.DeviceEndpoints.Add(new DeviceEndpoint
+        {
+            DeviceId = device.Id,
+            EndpointType = EndpointType.DirectLan,
+            Address = request.IpAddress.Trim(),
+            Port = port,
+            LastVerifiedAt = now
+        });
+
+        await WriteAuditLogAsync(
+            orgId,
+            PilotDefaults.OperatorUserId,
+            device.Id,
+            null,
+            "DEVICE_ADDED_MANUAL",
+            $"Added {device.Hostname} ({request.IpAddress.Trim()}:{port})",
+            sourceIp,
+            cancellationToken);
+
+        await _db.SaveChangesAsync(cancellationToken);
+
+        var summary = await GetDeviceByIdAsync(device.Id, cancellationToken);
+        return OperationResult<DeviceSummaryDto>.Success(summary!);
+    }
+
+    public async Task<OperationResult<DeviceSummaryDto>> RenameDeviceAsync(
+        Guid deviceId,
+        RenameDeviceRequest request,
+        string sourceIp,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(request.NewHostname))
+        {
+            return OperationResult<DeviceSummaryDto>.Failure("INVALID_NAME", "Device name cannot be empty.");
+        }
+
+        var device = await _db.Devices.FirstOrDefaultAsync(d => d.Id == deviceId, cancellationToken);
+        if (device is null)
+        {
+            return OperationResult<DeviceSummaryDto>.Failure("DEVICE_NOT_FOUND", "Device not found.");
+        }
+
+        var oldName = device.Hostname;
+        device.Hostname = request.NewHostname.Trim();
+
+        await WriteAuditLogAsync(
+            device.OrganizationId,
+            PilotDefaults.OperatorUserId,
+            device.Id,
+            null,
+            "DEVICE_RENAMED",
+            $"Renamed '{oldName}' -> '{device.Hostname}'",
+            sourceIp,
+            cancellationToken);
+
+        await _db.SaveChangesAsync(cancellationToken);
+
+        var summary = await GetDeviceByIdAsync(deviceId, cancellationToken);
+        return OperationResult<DeviceSummaryDto>.Success(summary!);
+    }
+
+    public async Task<OperationResult<bool>> DeleteDeviceAsync(
+        Guid deviceId,
+        string sourceIp,
+        CancellationToken cancellationToken)
+    {
+        var device = await _db.Devices.FirstOrDefaultAsync(d => d.Id == deviceId, cancellationToken);
+        if (device is null)
+        {
+            return OperationResult<bool>.Failure("DEVICE_NOT_FOUND", "Device not found.");
+        }
+
+        var hostname = device.Hostname;
+        var orgId = device.OrganizationId;
+
+        var endpoints = await _db.DeviceEndpoints.Where(e => e.DeviceId == deviceId).ToListAsync(cancellationToken);
+        var perms = await _db.DevicePermissions.Where(p => p.DeviceId == deviceId).ToListAsync(cancellationToken);
+        var sessions = await _db.Sessions.Where(s => s.DeviceId == deviceId).ToListAsync(cancellationToken);
+
+        _db.DeviceEndpoints.RemoveRange(endpoints);
+        _db.DevicePermissions.RemoveRange(perms);
+        _db.Sessions.RemoveRange(sessions);
+        _db.Devices.Remove(device);
+
+        await WriteAuditLogAsync(
+            orgId,
+            PilotDefaults.OperatorUserId,
+            deviceId,
+            null,
+            "DEVICE_DELETED",
+            $"Deleted device '{hostname}' ({deviceId})",
+            sourceIp,
+            cancellationToken);
+
+        await _db.SaveChangesAsync(cancellationToken);
+        return OperationResult<bool>.Success(true);
     }
 
     public async Task<OperationResult<bool>> GrantDevicePermissionAsync(
@@ -899,6 +1029,11 @@ public sealed class RemoteDeskManagementService : IRemoteDeskManagementService
         if (device.Status == DeviceStatus.Disabled)
         {
             return ("Disabled", false);
+        }
+
+        if (string.Equals(device.AgentVersion, "Manual-LAN", StringComparison.OrdinalIgnoreCase))
+        {
+            return ("Online", true);
         }
 
         var age = now - device.LastSeenAt;

@@ -242,3 +242,4 @@ public static class Win32ClipboardHelper
     [DllImport("user32.dll")]
     private static extern bool SetThreadDesktop(IntPtr hDesktop);
 }
+

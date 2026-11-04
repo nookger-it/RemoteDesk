@@ -26,7 +26,10 @@
                     <TextBlock Text="API URL:" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="#94A3B8"/>
                     <TextBox x:Name="ApiUrlTextBox" Text="http://localhost:5100" Width="165" VerticalContentAlignment="Center" Padding="6,4" Margin="0,0,6,0"/>
                     <Button x:Name="RefreshDevicesBtn" Content="Refresh" Padding="8,6" Margin="0,0,6,0" Click="RefreshDevicesBtn_Click"/>
-                    <ComboBox x:Name="DevicesComboBox" Width="225" VerticalContentAlignment="Center" Margin="0,0,8,0" DisplayMemberPath="DisplayLabel"/>
+                    <ComboBox x:Name="DevicesComboBox" Width="205" VerticalContentAlignment="Center" Margin="0,0,4,0" DisplayMemberPath="DisplayLabel"/>
+                    <Button x:Name="AddDeviceBtn" Content="+ Add" Padding="7,6" Background="#0D9488" Foreground="White" FontWeight="SemiBold" Margin="0,0,4,0" ToolTip="เพิ่มเครื่องปลายทางด้วยชื่อและ IP Address" Click="AddDeviceBtn_Click"/>
+                    <Button x:Name="RenameDeviceBtn" Content="Rename" Padding="7,6" Background="#475569" Foreground="White" Margin="0,0,4,0" ToolTip="แก้ไขชื่อเครื่องที่เลือก" Click="RenameDeviceBtn_Click"/>
+                    <Button x:Name="DeleteDeviceBtn" Content="Delete" Padding="7,6" Background="#991B1B" Foreground="White" Margin="0,0,8,0" ToolTip="ลบเครื่องที่เลือกออกจากรายการ" Click="DeleteDeviceBtn_Click"/>
                     <CheckBox x:Name="AllowInputCheckBox" Content="Control Mouse/KB" IsChecked="True" VerticalAlignment="Center" Foreground="#E2E8F0" Margin="0,0,8,0"/>
                     <ComboBox x:Name="QualityComboBox" Width="170" SelectedIndex="0" VerticalContentAlignment="Center" Margin="0,0,8,0" ToolTip="Change stream quality live" SelectionChanged="QualityComboBox_SelectionChanged">
                         <ComboBoxItem Content="Ultra (Native 95%, 45 FPS)"/>

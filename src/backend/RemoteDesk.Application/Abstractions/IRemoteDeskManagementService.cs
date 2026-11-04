@@ -53,6 +53,22 @@ public interface IRemoteDeskManagementService
         string sourceIp,
         CancellationToken cancellationToken);
 
+    Task<OperationResult<DeviceSummaryDto>> AddManualDeviceAsync(
+        AddManualDeviceRequest request,
+        string sourceIp,
+        CancellationToken cancellationToken);
+
+    Task<OperationResult<DeviceSummaryDto>> RenameDeviceAsync(
+        Guid deviceId,
+        RenameDeviceRequest request,
+        string sourceIp,
+        CancellationToken cancellationToken);
+
+    Task<OperationResult<bool>> DeleteDeviceAsync(
+        Guid deviceId,
+        string sourceIp,
+        CancellationToken cancellationToken);
+
     Task<OperationResult<bool>> GrantDevicePermissionAsync(
         Guid deviceId,
         GrantDevicePermissionRequest request,

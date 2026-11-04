@@ -48,6 +48,11 @@ public partial class MainWindow : Window
 
     private async void RefreshDevicesBtn_Click(object sender, RoutedEventArgs e)
     {
+        await ReloadDevicesListAsync();
+    }
+
+    private async Task ReloadDevicesListAsync(Guid? selectDeviceId = null)
+    {
         try
         {
             var baseUrl = ApiUrlTextBox.Text.Trim().TrimEnd('/');
@@ -59,7 +64,15 @@ public partial class MainWindow : Window
                 .Select(d => new DeviceComboItem(d))
                 .ToList();
             DevicesComboBox.ItemsSource = items;
-            if (items.Count > 0)
+            if (selectDeviceId.HasValue)
+            {
+                var match = items.FirstOrDefault(x => x.Device.Id == selectDeviceId.Value);
+                if (match is not null)
+                {
+                    DevicesComboBox.SelectedItem = match;
+                }
+            }
+            else if (items.Count > 0)
             {
                 DevicesComboBox.SelectedIndex = 0;
             }
@@ -70,6 +83,195 @@ public partial class MainWindow : Window
         {
             StatusTextBlock.Text = $"API Error: {ex.Message}";
         }
+    }
+
+    private async void AddDeviceBtn_Click(object sender, RoutedEventArgs e)
+    {
+        var input = PromptAddDeviceDialog();
+        if (input is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var baseUrl = ApiUrlTextBox.Text.Trim().TrimEnd('/');
+            var req = new AddManualDeviceRequest(input.Value.Name, input.Value.IpAddress, input.Value.Port, DefaultPilotOrgId, null);
+            var resp = await _httpClient.PostAsJsonAsync($"{baseUrl}/api/devices/manual", req);
+            if (!resp.IsSuccessStatusCode)
+            {
+                var err = await resp.Content.ReadAsStringAsync();
+                MessageBox.Show($"ไม่สามารถเพิ่มอุปกรณ์ได้: {err}", "Add Device Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            var added = await resp.Content.ReadFromJsonAsync<DeviceSummaryDto>();
+            await ReloadDevicesListAsync(added?.Id);
+            StatusTextBlock.Text = $"เพิ่มอุปกรณ์ '{input.Value.Name}' ({input.Value.IpAddress}:{input.Value.Port}) เรียบร้อยแล้ว";
+        }
+        catch (Exception ex)
+        {
+            StatusTextBlock.Text = $"Add device error: {ex.Message}";
+        }
+    }
+
+    private async void RenameDeviceBtn_Click(object sender, RoutedEventArgs e)
+    {
+        if (DevicesComboBox.SelectedItem is not DeviceComboItem selected)
+        {
+            MessageBox.Show("กรุณาเลือกอุปกรณ์ที่ต้องการเปลี่ยนชื่อก่อน", "Rename Device", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var newName = PromptTextDialog("แก้ไขชื่ออุปกรณ์ (Rename Device)", "ชื่ออุปกรณ์ใหม่:", selected.Device.Hostname);
+        if (string.IsNullOrWhiteSpace(newName) || newName.Trim() == selected.Device.Hostname)
+        {
+            return;
+        }
+
+        try
+        {
+            var baseUrl = ApiUrlTextBox.Text.Trim().TrimEnd('/');
+            var resp = await _httpClient.PutAsJsonAsync($"{baseUrl}/api/devices/{selected.Device.Id}/rename", new RenameDeviceRequest(newName.Trim()));
+            if (!resp.IsSuccessStatusCode)
+            {
+                var err = await resp.Content.ReadAsStringAsync();
+                MessageBox.Show($"เปลี่ยนชื่อไม่สำเร็จ: {err}", "Rename Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            await ReloadDevicesListAsync(selected.Device.Id);
+            StatusTextBlock.Text = $"เปลี่ยนชื่อเป็น '{newName.Trim()}' เรียบร้อยแล้ว";
+        }
+        catch (Exception ex)
+        {
+            StatusTextBlock.Text = $"Rename error: {ex.Message}";
+        }
+    }
+
+    private async void DeleteDeviceBtn_Click(object sender, RoutedEventArgs e)
+    {
+        if (DevicesComboBox.SelectedItem is not DeviceComboItem selected)
+        {
+            MessageBox.Show("กรุณาเลือกอุปกรณ์ที่ต้องการลบก่อน", "Delete Device", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var confirm = MessageBox.Show(
+            $"ยืนยันการลบอุปกรณ์ '{selected.Device.Hostname}' ({selected.Device.Id.ToString()[..8]}) ออกจากระบบ?",
+            "Confirm Delete Device",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning);
+
+        if (confirm != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        try
+        {
+            var baseUrl = ApiUrlTextBox.Text.Trim().TrimEnd('/');
+            var resp = await _httpClient.DeleteAsync($"{baseUrl}/api/devices/{selected.Device.Id}");
+            if (!resp.IsSuccessStatusCode)
+            {
+                var err = await resp.Content.ReadAsStringAsync();
+                MessageBox.Show($"ลบอุปกรณ์ไม่สำเร็จ: {err}", "Delete Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            await ReloadDevicesListAsync();
+            StatusTextBlock.Text = $"ลบอุปกรณ์ '{selected.Device.Hostname}' เรียบร้อยแล้ว";
+        }
+        catch (Exception ex)
+        {
+            StatusTextBlock.Text = $"Delete error: {ex.Message}";
+        }
+    }
+
+    private (string Name, string IpAddress, int Port)? PromptAddDeviceDialog()
+    {
+        var dlg = new Window
+        {
+            Title = "เพิ่มอุปกรณ์ใหม่ (Add Manual LAN Device)",
+            Width = 380,
+            Height = 250,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Owner = this,
+            ResizeMode = ResizeMode.NoResize,
+            Background = new SolidColorBrush(Color.FromRgb(15, 23, 42)),
+            Foreground = Brushes.White
+        };
+
+        var panel = new StackPanel { Margin = new Thickness(16) };
+        panel.Children.Add(new TextBlock { Text = "ชื่ออุปกรณ์ (Device Name):", Margin = new Thickness(0, 0, 0, 4) });
+        var nameBox = new TextBox { Text = "Remote-PC", Padding = new Thickness(6, 4, 6, 4), Margin = new Thickness(0, 0, 0, 10) };
+        panel.Children.Add(nameBox);
+
+        panel.Children.Add(new TextBlock { Text = "IP Address ของเครื่องปลายทาง (และ Port):", Margin = new Thickness(0, 0, 0, 4) });
+        var ipRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 16) };
+        var ipBox = new TextBox { Text = "192.168.1.", Width = 230, Padding = new Thickness(6, 4, 6, 4), Margin = new Thickness(0, 0, 8, 0) };
+        var portBox = new TextBox { Text = "52000", Width = 95, Padding = new Thickness(6, 4, 6, 4) };
+        ipRow.Children.Add(ipBox);
+        ipRow.Children.Add(portBox);
+        panel.Children.Add(ipRow);
+
+        var btnRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        var okBtn = new Button { Content = "บันทึก (Add)", Width = 95, Padding = new Thickness(8, 5, 8, 5), Margin = new Thickness(0, 0, 8, 0), IsDefault = true };
+        var cancelBtn = new Button { Content = "ยกเลิก", Width = 80, Padding = new Thickness(8, 5, 8, 5), IsCancel = true };
+        okBtn.Click += (_, _) =>
+        {
+            if (string.IsNullOrWhiteSpace(nameBox.Text) || string.IsNullOrWhiteSpace(ipBox.Text))
+            {
+                MessageBox.Show("กรุณากรอกชื่อเครื่องและ IP Address", "Add Device", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            dlg.DialogResult = true;
+        };
+        btnRow.Children.Add(okBtn);
+        btnRow.Children.Add(cancelBtn);
+        panel.Children.Add(btnRow);
+
+        dlg.Content = panel;
+        if (dlg.ShowDialog() == true)
+        {
+            var port = int.TryParse(portBox.Text.Trim(), out var p) && p is > 0 and <= 65535 ? p : 52000;
+            return (nameBox.Text.Trim(), ipBox.Text.Trim(), port);
+        }
+
+        return null;
+    }
+
+    private string? PromptTextDialog(string title, string label, string defaultValue)
+    {
+        var dlg = new Window
+        {
+            Title = title,
+            Width = 360,
+            Height = 175,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Owner = this,
+            ResizeMode = ResizeMode.NoResize,
+            Background = new SolidColorBrush(Color.FromRgb(15, 23, 42)),
+            Foreground = Brushes.White
+        };
+
+        var panel = new StackPanel { Margin = new Thickness(16) };
+        panel.Children.Add(new TextBlock { Text = label, Margin = new Thickness(0, 0, 0, 6) });
+        var textBox = new TextBox { Text = defaultValue, Padding = new Thickness(6, 4, 6, 4), Margin = new Thickness(0, 0, 0, 14) };
+        panel.Children.Add(textBox);
+
+        var btnRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        var okBtn = new Button { Content = "บันทึก", Width = 85, Padding = new Thickness(8, 5, 8, 5), Margin = new Thickness(0, 0, 8, 0), IsDefault = true };
+        var cancelBtn = new Button { Content = "ยกเลิก", Width = 80, Padding = new Thickness(8, 5, 8, 5), IsCancel = true };
+        okBtn.Click += (_, _) => dlg.DialogResult = true;
+        btnRow.Children.Add(okBtn);
+        btnRow.Children.Add(cancelBtn);
+        panel.Children.Add(btnRow);
+
+        dlg.Content = panel;
+        textBox.Focus();
+        textBox.SelectAll();
+        return dlg.ShowDialog() == true ? textBox.Text.Trim() : null;
     }
 
     private async void ConnectBtn_Click(object sender, RoutedEventArgs e)

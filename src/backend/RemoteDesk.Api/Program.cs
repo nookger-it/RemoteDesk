@@ -155,6 +155,46 @@ app.MapPost("/api/devices/{id:guid}/enable", async (
         : Results.NotFound(new { error = result.ErrorCode, message = result.ErrorMessage });
 });
 
+app.MapPost("/api/devices/manual", async (
+    AddManualDeviceRequest request,
+    HttpContext http,
+    IRemoteDeskManagementService service,
+    CancellationToken ct) =>
+{
+    var sourceIp = http.Connection.RemoteIpAddress?.ToString() ?? "127.0.0.1";
+    var result = await service.AddManualDeviceAsync(request, sourceIp, ct);
+    return result.IsSuccess
+        ? Results.Ok(result.Value)
+        : Results.BadRequest(new { error = result.ErrorCode, message = result.ErrorMessage });
+});
+
+app.MapPut("/api/devices/{id:guid}/rename", async (
+    Guid id,
+    RenameDeviceRequest request,
+    HttpContext http,
+    IRemoteDeskManagementService service,
+    CancellationToken ct) =>
+{
+    var sourceIp = http.Connection.RemoteIpAddress?.ToString() ?? "127.0.0.1";
+    var result = await service.RenameDeviceAsync(id, request, sourceIp, ct);
+    return result.IsSuccess
+        ? Results.Ok(result.Value)
+        : Results.BadRequest(new { error = result.ErrorCode, message = result.ErrorMessage });
+});
+
+app.MapDelete("/api/devices/{id:guid}", async (
+    Guid id,
+    HttpContext http,
+    IRemoteDeskManagementService service,
+    CancellationToken ct) =>
+{
+    var sourceIp = http.Connection.RemoteIpAddress?.ToString() ?? "127.0.0.1";
+    var result = await service.DeleteDeviceAsync(id, sourceIp, ct);
+    return result.IsSuccess
+        ? Results.Ok(new { deleted = true })
+        : Results.NotFound(new { error = result.ErrorCode, message = result.ErrorMessage });
+});
+
 app.MapPost("/api/devices/{id:guid}/permissions", async (
     Guid id,
     GrantDevicePermissionRequest request,

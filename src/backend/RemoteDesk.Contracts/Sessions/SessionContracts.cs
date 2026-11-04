@@ -232,6 +232,17 @@ public sealed record ClipboardSyncPacket(
     string Text,
     bool TriggerPaste = false);
 
+public sealed record AddManualDeviceRequest(
+    string Hostname,
+    string IpAddress,
+    int Port = 52000,
+    Guid? OrganizationId = null,
+    Guid? SiteId = null);
+
+public sealed record RenameDeviceRequest(
+    string NewHostname);
+
+
 
 
 
