@@ -1,10 +1,12 @@
 using System.Net;
 using System.Net.Security;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using System.Security.Authentication;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using RemoteDesk.Contracts.Sessions;
+using RemoteDesk.Transport.Abstractions;
 
 namespace RemoteDesk.Transport.DirectLan;
 
@@ -27,7 +29,8 @@ public sealed class DirectLanStreamHost : IAsyncDisposable
     private readonly SessionTicketValidator _ticketValidator;
     private readonly Func<long, CancellationToken, Task<ScreenFramePacket>> _frameProvider;
     private readonly Func<RemoteInputEventPacket, bool, CancellationToken, Task<InputControlAckPacket>>? _inputHandler;
-    private readonly int _targetFps;
+    private readonly Action<StreamQualityProfile>? _qualityHandler;
+    private int _targetFps;
     private readonly X509Certificate2 _ephemeralCert;
     private readonly SemaphoreSlim _activeStreamWriteLock = new(1, 1);
 
@@ -43,23 +46,40 @@ public sealed class DirectLanStreamHost : IAsyncDisposable
         SessionTicketValidator ticketValidator,
         Func<long, CancellationToken, Task<ScreenFramePacket>> frameProvider,
         int targetFps = 12,
-        Func<RemoteInputEventPacket, bool, CancellationToken, Task<InputControlAckPacket>>? inputHandler = null)
+        Func<RemoteInputEventPacket, bool, CancellationToken, Task<InputControlAckPacket>>? inputHandler = null,
+        Action<StreamQualityProfile>? qualityHandler = null)
     {
         _port = port;
         _deviceId = deviceId;
         _ticketValidator = ticketValidator;
         _frameProvider = frameProvider;
-        _targetFps = Math.Clamp(targetFps, 1, 30);
+        _targetFps = Math.Clamp(targetFps, 1, 60);
         _inputHandler = inputHandler;
+        _qualityHandler = qualityHandler;
         _ephemeralCert = CreateEphemeralTlsCertificate();
     }
 
     public int BoundPort { get; private set; }
 
+    /// <summary>Target frames per second; can be changed live during a session.</summary>
+    public int TargetFps
+    {
+        get => Volatile.Read(ref _targetFps);
+        set => Volatile.Write(ref _targetFps, Math.Clamp(value, 1, 60));
+    }
+
+    /// <summary>True while an Operator is connected over Direct LAN.</summary>
+    public bool HasActiveSession => _currentClientStream is not null;
+
     public event Action<Guid, string>? SessionEndedByPeerOrLocal;
 
     public void Start()
     {
+        if (OperatingSystem.IsWindows())
+        {
+            _ = timeBeginPeriod(1);
+        }
+
         _listener = new TcpListener(IPAddress.Any, _port);
         _listener.Start();
         BoundPort = ((IPEndPoint)_listener.LocalEndpoint).Port;
@@ -120,6 +140,8 @@ public sealed class DirectLanStreamHost : IAsyncDisposable
             {
                 var client = await _listener.AcceptTcpClientAsync(ct);
                 client.NoDelay = true;
+                client.SendBufferSize = 262144;
+                client.ReceiveBufferSize = 65536;
                 _ = Task.Run(() => HandleClientAsync(client, ct), ct);
             }
             catch (OperationCanceledException)
@@ -203,6 +225,10 @@ public sealed class DirectLanStreamHost : IAsyncDisposable
                                 _activeStreamWriteLock.Release();
                             }
                         }
+                        else if (envelope.PacketType == "QUALITY" && envelope.Quality is { } qualityProfile)
+                        {
+                            _qualityHandler?.Invoke(qualityProfile);
+                        }
                         else if (envelope.PacketType == "DISCONNECT")
                         {
                             SessionEndedByPeerOrLocal?.Invoke(req.SessionId, envelope.Disconnect?.Reason ?? "Operator disconnected");
@@ -220,29 +246,41 @@ public sealed class DirectLanStreamHost : IAsyncDisposable
                 }
             }, sessionCts.Token);
 
-            var frameInterval = TimeSpan.FromMilliseconds(1000.0 / _targetFps);
             long sequence = 0;
+            var pacing = System.Diagnostics.Stopwatch.StartNew();
 
             try
             {
+                // Pipeline: capture/encode the NEXT frame while the current one is being sent over TLS.
+                var nextFrameTask = _frameProvider(++sequence, sessionCts.Token);
+
                 while (!sessionCts.Token.IsCancellationRequested && client.Connected)
                 {
-                    sequence++;
-                    var frame = await _frameProvider(sequence, sessionCts.Token);
-                    await _activeStreamWriteLock.WaitAsync(sessionCts.Token);
-                    try
+                    var frameStartedAt = pacing.Elapsed;
+                    var frame = await nextFrameTask;
+                    nextFrameTask = _frameProvider(++sequence, sessionCts.Token);
+
+                    // Empty payload = screen unchanged since the last frame => skip sending (saves bandwidth)
+                    if (frame.Payload is { Length: > 0 })
                     {
-                        await DirectLanTransport.WriteFramedJsonAsync(
-                            sslStream,
-                            new DirectLanWireEnvelope("FRAME", Frame: frame),
-                            sessionCts.Token);
-                    }
-                    finally
-                    {
-                        _activeStreamWriteLock.Release();
+                        await _activeStreamWriteLock.WaitAsync(sessionCts.Token);
+                        try
+                        {
+                            await DirectLanTransport.WriteBinaryFrameAsync(sslStream, frame, sessionCts.Token);
+                        }
+                        finally
+                        {
+                            _activeStreamWriteLock.Release();
+                        }
                     }
 
-                    await Task.Delay(frameInterval, sessionCts.Token);
+                    // Deadline pacing: only wait for what remains of the frame interval
+                    var frameInterval = TimeSpan.FromMilliseconds(1000.0 / TargetFps);
+                    var remaining = frameInterval - (pacing.Elapsed - frameStartedAt);
+                    if (remaining >= TimeSpan.FromMilliseconds(3))
+                    {
+                        await Task.Delay(remaining, sessionCts.Token);
+                    }
                 }
             }
             catch
@@ -301,4 +339,7 @@ public sealed class DirectLanStreamHost : IAsyncDisposable
         var pfxBytes = cert.Export(X509ContentType.Pfx);
         return X509CertificateLoader.LoadPkcs12(pfxBytes, password: null, X509KeyStorageFlags.Exportable);
     }
+
+    [DllImport("winmm.dll")]
+    private static extern uint timeBeginPeriod(uint uPeriod);
 }

@@ -3,6 +3,8 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="RemoteDesk Operator Client — V1 LAN-First"
         Height="760" Width="1220"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True"
         Background="#0F172A" Foreground="#F8FAFC"
         PreviewKeyDown="Window_PreviewKeyDown"
         PreviewKeyUp="Window_PreviewKeyUp">
@@ -22,9 +24,11 @@
                     <Button x:Name="RefreshDevicesBtn" Content="Refresh" Padding="8,6" Margin="0,0,6,0" Click="RefreshDevicesBtn_Click"/>
                     <ComboBox x:Name="DevicesComboBox" Width="225" VerticalContentAlignment="Center" Margin="0,0,8,0" DisplayMemberPath="DisplayLabel"/>
                     <CheckBox x:Name="AllowInputCheckBox" Content="Control Mouse/KB" IsChecked="True" VerticalAlignment="Center" Foreground="#E2E8F0" Margin="0,0,8,0"/>
-                    <ComboBox x:Name="QualityComboBox" Width="125" SelectedIndex="0" VerticalContentAlignment="Center" Margin="0,0,8,0" SelectionChanged="QualityComboBox_SelectionChanged">
-                        <ComboBoxItem Content="Sharp (High HQ)"/>
-                        <ComboBoxItem Content="Fast (Low Latency)"/>
+                    <ComboBox x:Name="QualityComboBox" Width="170" SelectedIndex="0" VerticalContentAlignment="Center" Margin="0,0,8,0" ToolTip="Change stream quality live" SelectionChanged="QualityComboBox_SelectionChanged">
+                        <ComboBoxItem Content="Ultra (Native 95%, 45 FPS)"/>
+                        <ComboBoxItem Content="Sharp (Native 88%, 35 FPS)"/>
+                        <ComboBoxItem Content="Balanced (900p, 45 FPS)"/>
+                        <ComboBoxItem Content="Fast (720p, 60 FPS)"/>
                     </ComboBox>
                     <Button x:Name="ConnectBtn" Content="Connect (LAN)" Padding="10,6" Background="#0284C7" Foreground="White" FontWeight="SemiBold" Margin="0,0,6,0" Click="ConnectBtn_Click"/>
                     <Button x:Name="DisconnectBtn" Content="Disconnect" Padding="10,6" Background="#DC2626" Foreground="White" FontWeight="SemiBold" IsEnabled="False" Margin="0,0,6,0" Click="DisconnectBtn_Click"/>
@@ -60,7 +64,10 @@
                 <Image x:Name="RemoteScreenImage"
                        Stretch="Uniform"
                        Focusable="True"
+                       SnapsToDevicePixels="True"
+                       UseLayoutRounding="True"
                        RenderOptions.BitmapScalingMode="HighQuality"
+                       RenderOptions.EdgeMode="Aliased"
                        MouseMove="RemoteScreenImage_MouseMove"
                        MouseDown="RemoteScreenImage_MouseDown"
                        MouseUp="RemoteScreenImage_MouseUp"

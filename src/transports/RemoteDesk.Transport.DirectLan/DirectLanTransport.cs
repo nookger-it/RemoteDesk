@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Buffers.Binary;
 using System.Net.Security;
 using System.Net.Sockets;
@@ -24,9 +25,10 @@ internal sealed record DirectLanWireEnvelope(
     ScreenFramePacket? Frame = null,
     RemoteInputEventPacket? Input = null,
     InputControlAckPacket? InputAck = null,
-    SessionDisconnectPacket? Disconnect = null);
+    SessionDisconnectPacket? Disconnect = null,
+    StreamQualityProfile? Quality = null);
 
-public sealed class DirectLanTransport : IRemoteTransport
+public sealed class DirectLanTransport : IRemoteTransport, IStreamQualityControl
 {
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private TcpClient? _tcpClient;
@@ -39,6 +41,14 @@ public sealed class DirectLanTransport : IRemoteTransport
     private long _totalBytes;
     private double _smoothedLatencyMs;
     private DateTimeOffset _connectedAtUtc;
+
+    // Rolling-window telemetry (so FPS/Bandwidth reflect "now", not the session average)
+    private readonly object _telemetryLock = new();
+    private DateTimeOffset _lastSnapshotAt;
+    private long _lastSnapshotFrames;
+    private long _lastSnapshotBytes;
+    private double _lastFps;
+    private double _lastKbps;
 
     public string TransportName => "DirectLan";
 
@@ -66,7 +76,12 @@ public sealed class DirectLanTransport : IRemoteTransport
         try
         {
             _activeSessionId = session.SessionId;
-            _tcpClient = new TcpClient { NoDelay = true };
+            _tcpClient = new TcpClient
+            {
+                NoDelay = true,
+                ReceiveBufferSize = 262144,
+                SendBufferSize = 65536
+            };
             await _tcpClient.ConnectAsync(session.DirectAddress, session.DirectPort, cancellationToken);
 
             _sslStream = new SslStream(
@@ -104,6 +119,11 @@ public sealed class DirectLanTransport : IRemoteTransport
             _totalFrames = 0;
             _totalBytes = 0;
             _smoothedLatencyMs = 0;
+            _lastSnapshotAt = _connectedAtUtc;
+            _lastSnapshotFrames = 0;
+            _lastSnapshotBytes = 0;
+            _lastFps = 0;
+            _lastKbps = 0;
 
             _receiveCts = new CancellationTokenSource();
             _receiveLoopTask = Task.Run(() => ReceiveFramesLoopAsync(_sslStream, _receiveCts.Token), CancellationToken.None);
@@ -145,20 +165,50 @@ public sealed class DirectLanTransport : IRemoteTransport
         }
     }
 
+    public async Task SetQualityProfileAsync(StreamQualityProfile profile, CancellationToken cancellationToken)
+    {
+        var stream = _sslStream;
+        if (stream is null)
+        {
+            return;
+        }
+
+        await _writeLock.WaitAsync(cancellationToken);
+        try
+        {
+            await WriteFramedJsonAsync(stream, new DirectLanWireEnvelope("QUALITY", Quality: profile), cancellationToken);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
     public StreamTelemetrySnapshot GetTelemetrySnapshot()
     {
-        var elapsedSec = Math.Max(0.25, (DateTimeOffset.UtcNow - _connectedAtUtc).TotalSeconds);
         var frames = Interlocked.Read(ref _totalFrames);
         var bytes = Interlocked.Read(ref _totalBytes);
-        var fps = frames > 0 ? Math.Round(frames / elapsedSec, 1) : 0;
-        var kbps = bytes > 0 ? Math.Round((bytes * 8.0 / 1000.0) / elapsedSec, 1) : 0;
+        var now = DateTimeOffset.UtcNow;
 
-        return new StreamTelemetrySnapshot(
-            CurrentFps: fps,
-            AverageLatencyMs: Math.Round(_smoothedLatencyMs, 1),
-            BandwidthKbps: kbps,
-            TotalFramesReceived: frames,
-            TotalBytesReceived: bytes);
+        lock (_telemetryLock)
+        {
+            var windowSec = (now - _lastSnapshotAt).TotalSeconds;
+            if (windowSec >= 0.4)
+            {
+                _lastFps = Math.Round((frames - _lastSnapshotFrames) / windowSec, 1);
+                _lastKbps = Math.Round(((bytes - _lastSnapshotBytes) * 8.0 / 1000.0) / windowSec, 1);
+                _lastSnapshotAt = now;
+                _lastSnapshotFrames = frames;
+                _lastSnapshotBytes = bytes;
+            }
+
+            return new StreamTelemetrySnapshot(
+                CurrentFps: _lastFps,
+                AverageLatencyMs: Math.Round(_smoothedLatencyMs, 1),
+                BandwidthKbps: _lastKbps,
+                TotalFramesReceived: frames,
+                TotalBytesReceived: bytes);
+        }
     }
 
     public async Task DisconnectAsync(CancellationToken cancellationToken)
@@ -220,7 +270,7 @@ public sealed class DirectLanTransport : IRemoteTransport
         {
             while (!ct.IsCancellationRequested)
             {
-                var envelope = await ReadFramedJsonAsync<DirectLanWireEnvelope>(stream, ct);
+                var envelope = await ReadEnvelopeAsync(stream, ct);
                 if (envelope is null)
                 {
                     break;
@@ -259,12 +309,92 @@ public sealed class DirectLanTransport : IRemoteTransport
     internal static async Task WriteFramedJsonAsync<T>(Stream stream, T value, CancellationToken ct)
     {
         var payload = JsonSerializer.SerializeToUtf8Bytes(value);
-        var lengthPrefix = new byte[4];
-        BinaryPrimitives.WriteInt32BigEndian(lengthPrefix, payload.Length);
-        await stream.WriteAsync(lengthPrefix, ct);
-        await stream.WriteAsync(payload, ct);
+        var buffer = new byte[4 + payload.Length];
+        BinaryPrimitives.WriteInt32BigEndian(buffer, payload.Length);
+        payload.CopyTo(buffer, 4);
+        // Single write => single TLS record (fewer syscalls, lower latency)
+        await stream.WriteAsync(buffer, ct);
         await stream.FlushAsync(ct);
     }
+
+    /// <summary>
+    /// Writes a screen frame as raw binary (no Base64/JSON for the JPEG bytes).
+    /// Wire layout: [int32 BE = -(4 + headerLen + payloadLen)] [int32 BE headerLen] [header JSON] [JPEG bytes].
+    /// A negative length prefix marks a binary frame so JSON control packets remain compatible.
+    /// </summary>
+    internal static async Task WriteBinaryFrameAsync(Stream stream, ScreenFramePacket frame, CancellationToken ct)
+    {
+        var header = JsonSerializer.SerializeToUtf8Bytes(frame with { Payload = [] });
+        var payload = frame.Payload;
+        var bodyLength = 4 + header.Length + payload.Length;
+        var total = 4 + bodyLength;
+
+        var buffer = ArrayPool<byte>.Shared.Rent(total);
+        try
+        {
+            BinaryPrimitives.WriteInt32BigEndian(buffer.AsSpan(0, 4), -bodyLength);
+            BinaryPrimitives.WriteInt32BigEndian(buffer.AsSpan(4, 4), header.Length);
+            header.CopyTo(buffer.AsSpan(8));
+            payload.CopyTo(buffer.AsSpan(8 + header.Length));
+            await stream.WriteAsync(buffer.AsMemory(0, total), ct);
+            await stream.FlushAsync(ct);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
+
+    /// <summary>
+    /// Reads either a JSON envelope (positive length prefix) or a binary FRAME (negative length prefix).
+    /// </summary>
+    internal static async Task<DirectLanWireEnvelope?> ReadEnvelopeAsync(Stream stream, CancellationToken ct)
+    {
+        var lengthPrefix = new byte[4];
+        var read = await ReadExactAsync(stream, lengthPrefix, ct);
+        if (read == 0)
+        {
+            return null;
+        }
+
+        var length = BinaryPrimitives.ReadInt32BigEndian(lengthPrefix);
+        if (length >= 0)
+        {
+            if (length == 0 || length > MaxPacketBytes)
+            {
+                throw new InvalidDataException($"Invalid frame length: {length}");
+            }
+
+            var json = new byte[length];
+            await ReadExactAsync(stream, json, ct);
+            return JsonSerializer.Deserialize<DirectLanWireEnvelope>(json);
+        }
+
+        var bodyLength = -length;
+        if (bodyLength < 4 || bodyLength > MaxPacketBytes)
+        {
+            throw new InvalidDataException($"Invalid binary frame length: {bodyLength}");
+        }
+
+        var body = new byte[bodyLength];
+        await ReadExactAsync(stream, body, ct);
+        var headerLength = BinaryPrimitives.ReadInt32BigEndian(body.AsSpan(0, 4));
+        if (headerLength <= 0 || headerLength > bodyLength - 4)
+        {
+            throw new InvalidDataException($"Invalid binary frame header length: {headerLength}");
+        }
+
+        var header = JsonSerializer.Deserialize<ScreenFramePacket>(body.AsSpan(4, headerLength));
+        if (header is null)
+        {
+            return null;
+        }
+
+        var payload = body.AsSpan(4 + headerLength).ToArray();
+        return new DirectLanWireEnvelope("FRAME", Frame: header with { Payload = payload });
+    }
+
+    private const int MaxPacketBytes = 32 * 1024 * 1024;
 
     internal static async Task<T?> ReadFramedJsonAsync<T>(Stream stream, CancellationToken ct)
     {

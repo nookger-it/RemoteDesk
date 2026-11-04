@@ -7,7 +7,7 @@ namespace RemoteDesk.Transport.Abstractions;
 /// 1. Try Direct LAN first (low latency, zero server bandwidth).
 /// 2. If Direct LAN fails or times out (cross-subnet / firewall), automatically fallback to Local Server Relay.
 /// </summary>
-public sealed class HybridLanTransportOrchestrator : IRemoteTransport
+public sealed class HybridLanTransportOrchestrator : IRemoteTransport, IStreamQualityControl
 {
     private readonly IRemoteTransport _directTransport;
     private readonly IRemoteTransport _relayTransport;
@@ -87,6 +87,11 @@ public sealed class HybridLanTransportOrchestrator : IRemoteTransport
 
         return _activeTransport.SendInputEventAsync(inputEvent, cancellationToken);
     }
+
+    public Task SetQualityProfileAsync(StreamQualityProfile profile, CancellationToken cancellationToken) =>
+        _activeTransport is IStreamQualityControl qualityControl
+            ? qualityControl.SetQualityProfileAsync(profile, cancellationToken)
+            : Task.CompletedTask;
 
     public StreamTelemetrySnapshot GetTelemetrySnapshot() =>
         _activeTransport?.GetTelemetrySnapshot() ?? new StreamTelemetrySnapshot(0, 0, 0, 0, 0);

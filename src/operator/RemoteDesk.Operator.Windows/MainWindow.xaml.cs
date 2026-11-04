@@ -135,6 +135,7 @@ public partial class MainWindow : Window
             StatusTextBlock.Text = $"Connected to {selected.Device.Hostname} (Slot #{sessionResp.ReservedSlotIndex + 1}/5)";
             RemoteScreenImage.Focus();
             _telemetryTimer.Start();
+            await ApplyQualityProfileAsync(GetSelectedQualityProfile());
         }
         catch (Exception ex)
         {
@@ -154,10 +155,38 @@ public partial class MainWindow : Window
             return;
         }
 
-        var mode = QualityComboBox.SelectedIndex == 0
-            ? BitmapScalingMode.HighQuality
-            : BitmapScalingMode.LowQuality;
-        RenderOptions.SetBitmapScalingMode(RemoteScreenImage, mode);
+        var profile = GetSelectedQualityProfile();
+        RenderOptions.SetBitmapScalingMode(
+            RemoteScreenImage,
+            profile == StreamQualityProfile.Fast ? BitmapScalingMode.LowQuality : BitmapScalingMode.HighQuality);
+
+        _ = ApplyQualityProfileAsync(profile);
+    }
+
+    private StreamQualityProfile GetSelectedQualityProfile() => QualityComboBox.SelectedIndex switch
+    {
+        1 => StreamQualityProfile.Sharp,
+        2 => StreamQualityProfile.Balanced,
+        3 => StreamQualityProfile.Fast,
+        _ => StreamQualityProfile.Ultra
+    };
+
+    private async Task ApplyQualityProfileAsync(StreamQualityProfile profile)
+    {
+        if (_activeTransport is not IStreamQualityControl qualityControl)
+        {
+            return;
+        }
+
+        try
+        {
+            await qualityControl.SetQualityProfileAsync(profile, CancellationToken.None);
+            StatusTextBlock.Text = $"Quality: {profile} — {_connectedHostname}";
+        }
+        catch
+        {
+            // Ignore if the session just closed
+        }
     }
 
     private void SnapshotBtn_Click(object sender, RoutedEventArgs e)
@@ -244,7 +273,7 @@ public partial class MainWindow : Window
         }
 
         var now = DateTimeOffset.UtcNow;
-        if ((now - _lastMouseMoveSent).TotalMilliseconds < 35)
+        if ((now - _lastMouseMoveSent).TotalMilliseconds < 8)
         {
             return;
         }
@@ -416,24 +445,44 @@ public partial class MainWindow : Window
 
         _lastFrameBytes = frame.Payload;
 
-        Dispatcher.InvokeAsync(() =>
+        // Decode on the network thread (frozen bitmaps are thread-safe), then hand only the
+        // LATEST frame to the UI. Stale frames are dropped instead of queuing up => no growing lag.
+        BitmapImage bitmap;
+        try
         {
-            try
-            {
-                using var ms = new MemoryStream(frame.Payload);
-                var bitmap = new BitmapImage();
-                bitmap.BeginInit();
-                bitmap.CacheOption = BitmapCacheOption.OnLoad;
-                bitmap.StreamSource = ms;
-                bitmap.EndInit();
-                bitmap.Freeze();
-                RemoteScreenImage.Source = bitmap;
-            }
-            catch
-            {
-                // Skip non-image synthetic frames during unit/headless tests
-            }
-        });
+            using var ms = new MemoryStream(frame.Payload, writable: false);
+            bitmap = new BitmapImage();
+            bitmap.BeginInit();
+            bitmap.CacheOption = BitmapCacheOption.OnLoad;
+            bitmap.CreateOptions = BitmapCreateOptions.IgnoreColorProfile | BitmapCreateOptions.PreservePixelFormat;
+            bitmap.StreamSource = ms;
+            bitmap.EndInit();
+            bitmap.Freeze();
+        }
+        catch
+        {
+            // Skip non-image synthetic frames during unit/headless tests
+            return;
+        }
+
+        Interlocked.Exchange(ref _pendingFrame, bitmap);
+        if (Interlocked.CompareExchange(ref _renderScheduled, 1, 0) == 0)
+        {
+            Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(RenderLatestFrame));
+        }
+    }
+
+    private BitmapImage? _pendingFrame;
+    private int _renderScheduled;
+
+    private void RenderLatestFrame()
+    {
+        Interlocked.Exchange(ref _renderScheduled, 0);
+        var latest = Interlocked.Exchange(ref _pendingFrame, null);
+        if (latest is not null && _activeTransport is not null)
+        {
+            RemoteScreenImage.Source = latest;
+        }
     }
 
     private void TelemetryTimer_Tick(object? sender, EventArgs e)
