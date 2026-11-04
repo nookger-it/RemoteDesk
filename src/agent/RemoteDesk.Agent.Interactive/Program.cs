@@ -76,6 +76,26 @@ await using var directHost = new DirectLanStreamHost(
 
         var res = s.Width == 0 ? "native" : $"{s.Width}x{s.Height}";
         Console.WriteLine($"[Agent.Interactive] Quality -> {profile}: {res}, JPEG {s.JpegQuality}%, {s.TargetFps} FPS");
+    },
+    clipboardHandler: (clipSync, allowInput) =>
+    {
+        if (!allowInput || !OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        if (Win32ClipboardHelper.TrySetText(clipSync.Text) && clipSync.TriggerPaste)
+        {
+            inputEngine.InjectCtrlV();
+        }
+    },
+    remoteClipboardProvider: () => OperatingSystem.IsWindows() ? Win32ClipboardHelper.TryGetText() : null,
+    fileReceivedHandler: savedPath =>
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            _ = Win32ClipboardHelper.TrySetFileDropList(savedPath);
+        }
     });
 directHostRef = directHost;
 

@@ -28,7 +28,8 @@ internal sealed record DirectLanWireEnvelope(
     SessionDisconnectPacket? Disconnect = null,
     StreamQualityProfile? Quality = null,
     FileTransferPacket? FileChunk = null,
-    FileTransferAckPacket? FileAck = null);
+    FileTransferAckPacket? FileAck = null,
+    ClipboardSyncPacket? ClipboardSync = null);
 
 public sealed class DirectLanTransport : IRemoteTransport, IStreamQualityControl, IFileTransferTransport
 {
@@ -61,6 +62,8 @@ public sealed class DirectLanTransport : IRemoteTransport, IStreamQualityControl
     public event Action<SessionDisconnectPacket>? RemoteDisconnected;
 
     public event Action<FileTransferAckPacket>? FileTransferAckReceived;
+
+    public event Action<ClipboardSyncPacket>? ClipboardSyncReceived;
 
     public async Task<TransportConnectionResult> ConnectAsync(
         SessionConnectionInfo session,
@@ -204,6 +207,26 @@ public sealed class DirectLanTransport : IRemoteTransport, IStreamQualityControl
         }
     }
 
+    public async Task SendClipboardSyncAsync(ClipboardSyncPacket clipboard, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(clipboard);
+        var stream = _sslStream;
+        if (stream is null)
+        {
+            return;
+        }
+
+        await _writeLock.WaitAsync(cancellationToken);
+        try
+        {
+            await WriteFramedJsonAsync(stream, new DirectLanWireEnvelope("CLIPBOARD_SYNC", ClipboardSync: clipboard), cancellationToken);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
     public StreamTelemetrySnapshot GetTelemetrySnapshot()
     {
         var frames = Interlocked.Read(ref _totalFrames);
@@ -316,6 +339,10 @@ public sealed class DirectLanTransport : IRemoteTransport, IStreamQualityControl
                 else if (envelope.PacketType == "FILE_ACK" && envelope.FileAck is { } fileAck)
                 {
                     FileTransferAckReceived?.Invoke(fileAck);
+                }
+                else if (envelope.PacketType == "CLIPBOARD_SYNC" && envelope.ClipboardSync is { } clipSync)
+                {
+                    ClipboardSyncReceived?.Invoke(clipSync);
                 }
                 else if (envelope.PacketType == "DISCONNECT" && envelope.Disconnect is { } disc)
                 {

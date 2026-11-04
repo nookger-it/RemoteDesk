@@ -137,6 +137,39 @@ public sealed class InputInjectorEngine
         }
     }
 
+    public void InjectCtrlV()
+    {
+        if (!_executeNativeSendInput || !OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        try
+        {
+            IntPtr hDesk = OpenInputDesktop(0, false, 0x10000000);
+            if (hDesk != IntPtr.Zero)
+            {
+                _ = SetThreadDesktop(hDesk);
+            }
+
+            const ushort VK_CONTROL = 0x11;
+            const ushort VK_V = 0x56;
+
+            INPUT[] inputs =
+            [
+                new INPUT { type = INPUT_KEYBOARD, U = new InputUnion { ki = new KEYBDINPUT { wVk = VK_CONTROL, dwFlags = 0 } } },
+                new INPUT { type = INPUT_KEYBOARD, U = new InputUnion { ki = new KEYBDINPUT { wVk = VK_V, dwFlags = 0 } } },
+                new INPUT { type = INPUT_KEYBOARD, U = new InputUnion { ki = new KEYBDINPUT { wVk = VK_V, dwFlags = KEYEVENTF_KEYUP } } },
+                new INPUT { type = INPUT_KEYBOARD, U = new InputUnion { ki = new KEYBDINPUT { wVk = VK_CONTROL, dwFlags = KEYEVENTF_KEYUP } } }
+            ];
+            _ = SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<INPUT>());
+        }
+        catch
+        {
+            // Ignore
+        }
+    }
+
     private static uint GetMouseDownFlag(MouseButtonType button) => button switch
     {
         MouseButtonType.Right => MOUSEEVENTF_RIGHTDOWN,

@@ -5,6 +5,10 @@
         Height="760" Width="1220"
         UseLayoutRounding="True"
         SnapsToDevicePixels="True"
+        AllowDrop="True"
+        PreviewDragOver="Window_PreviewDragOver"
+        PreviewDragLeave="Window_PreviewDragLeave"
+        PreviewDrop="RemoteScreen_Drop"
         Background="#0F172A" Foreground="#F8FAFC"
         PreviewKeyDown="Window_PreviewKeyDown"
         PreviewKeyUp="Window_PreviewKeyUp">
@@ -34,7 +38,7 @@
                     <Button x:Name="DisconnectBtn" Content="Disconnect" Padding="10,6" Background="#DC2626" Foreground="White" FontWeight="SemiBold" IsEnabled="False" Margin="0,0,6,0" Click="DisconnectBtn_Click"/>
                     <Button x:Name="SendFileBtn" Content="Send File" Padding="8,6" Background="#059669" Foreground="White" FontWeight="SemiBold" IsEnabled="False" Margin="0,0,6,0" ToolTip="Send a file over encrypted Direct LAN (or drag &amp; drop onto screen)" Click="SendFileBtn_Click"/>
                     <Button x:Name="SnapshotBtn" Content="Snapshot" Padding="8,6" Background="#334155" Foreground="White" IsEnabled="False" Margin="0,0,6,0" Click="SnapshotBtn_Click"/>
-                    <Button x:Name="SendClipboardBtn" Content="Send Text" Padding="8,6" Background="#334155" Foreground="White" IsEnabled="False" Margin="0,0,6,0" Click="SendClipboardBtn_Click"/>
+                    <Button x:Name="SendClipboardBtn" Content="Paste Text" Padding="8,6" Background="#334155" Foreground="White" IsEnabled="False" Margin="0,0,6,0" ToolTip="Sync and paste clipboard text (Thai/English/Unicode) to Remote PC" Click="SendClipboardBtn_Click"/>
                     <Button x:Name="FullScreenBtn" Content="Full Screen" Padding="8,6" Background="#334155" Foreground="White" Click="FullScreenBtn_Click"/>
                 </StackPanel>
                 <TextBlock x:Name="StatusTextBlock" Text="Status: Ready" VerticalAlignment="Center" HorizontalAlignment="Right" Foreground="#38BDF8" FontWeight="SemiBold"/>
@@ -73,6 +77,20 @@
                        MouseDown="RemoteScreenImage_MouseDown"
                        MouseUp="RemoteScreenImage_MouseUp"
                        MouseWheel="RemoteScreenImage_MouseWheel"/>
+                <Border x:Name="DragDropOverlayBorder"
+                        Background="#CC064E3B"
+                        BorderBrush="#10B981"
+                        BorderThickness="3"
+                        CornerRadius="8"
+                        Visibility="Collapsed"
+                        IsHitTestVisible="False">
+                    <TextBlock Text="ปล่อยเมาส์เพื่อส่งไฟล์ไปยังเครื่องปลายทาง (พร้อมคัดลอกเข้า Clipboard ให้กด Ctrl+V วางไฟล์ได้ทันที)"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"
+                               Foreground="#ECFDF5"
+                               FontSize="18"
+                               FontWeight="Bold"/>
+                </Border>
             </Grid>
         </Border>
     </Grid>

@@ -52,14 +52,20 @@ public interface IStreamQualityControl
 
 /// <summary>
 /// Optional capability implemented by transports that support encrypted chunked file transfer
-/// from the Operator Client to the Agent PC.
+/// from the Operator Client to the Agent PC, and bidirectional Unicode clipboard synchronization.
 /// </summary>
 public interface IFileTransferTransport
 {
     event Action<RemoteDesk.Contracts.Sessions.FileTransferAckPacket>? FileTransferAckReceived;
 
+    event Action<RemoteDesk.Contracts.Sessions.ClipboardSyncPacket>? ClipboardSyncReceived;
+
     Task SendFileChunkAsync(
         RemoteDesk.Contracts.Sessions.FileTransferPacket chunk,
+        CancellationToken cancellationToken);
+
+    Task SendClipboardSyncAsync(
+        RemoteDesk.Contracts.Sessions.ClipboardSyncPacket clipboard,
         CancellationToken cancellationToken);
 }
 

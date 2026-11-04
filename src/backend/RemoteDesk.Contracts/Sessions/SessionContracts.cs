@@ -227,5 +227,11 @@ public sealed record FileTransferAckPacket(
     bool Accepted,
     string? SavedPathOrError);
 
+public sealed record ClipboardSyncPacket(
+    Guid SessionId,
+    string Text,
+    bool TriggerPaste = false);
+
+
 
 

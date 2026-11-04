@@ -30,6 +30,10 @@ public sealed class DirectLanStreamHost : IAsyncDisposable
     private readonly Func<long, CancellationToken, Task<ScreenFramePacket>> _frameProvider;
     private readonly Func<RemoteInputEventPacket, bool, CancellationToken, Task<InputControlAckPacket>>? _inputHandler;
     private readonly Action<StreamQualityProfile>? _qualityHandler;
+    private readonly Action<ClipboardSyncPacket, bool>? _clipboardHandler;
+    private readonly Func<string?>? _remoteClipboardProvider;
+    private readonly Action<string>? _fileReceivedHandler;
+    private string? _lastKnownClipboardText;
     private int _targetFps;
     private readonly X509Certificate2 _ephemeralCert;
     private readonly SemaphoreSlim _activeStreamWriteLock = new(1, 1);
@@ -47,7 +51,10 @@ public sealed class DirectLanStreamHost : IAsyncDisposable
         Func<long, CancellationToken, Task<ScreenFramePacket>> frameProvider,
         int targetFps = 12,
         Func<RemoteInputEventPacket, bool, CancellationToken, Task<InputControlAckPacket>>? inputHandler = null,
-        Action<StreamQualityProfile>? qualityHandler = null)
+        Action<StreamQualityProfile>? qualityHandler = null,
+        Action<ClipboardSyncPacket, bool>? clipboardHandler = null,
+        Func<string?>? remoteClipboardProvider = null,
+        Action<string>? fileReceivedHandler = null)
     {
         _port = port;
         _deviceId = deviceId;
@@ -56,6 +63,9 @@ public sealed class DirectLanStreamHost : IAsyncDisposable
         _targetFps = Math.Clamp(targetFps, 1, 60);
         _inputHandler = inputHandler;
         _qualityHandler = qualityHandler;
+        _clipboardHandler = clipboardHandler;
+        _remoteClipboardProvider = remoteClipboardProvider;
+        _fileReceivedHandler = fileReceivedHandler;
         _ephemeralCert = CreateEphemeralTlsCertificate();
     }
 
@@ -232,6 +242,11 @@ public sealed class DirectLanStreamHost : IAsyncDisposable
                         else if (envelope.PacketType == "FILE_CHUNK" && envelope.FileChunk is { } fileChunk)
                         {
                             var fileAck = await ProcessIncomingFileChunkAsync(fileChunk, allowInputControl);
+                            if (fileAck.Completed && fileAck.Accepted && !string.IsNullOrWhiteSpace(fileAck.SavedPathOrError))
+                            {
+                                _fileReceivedHandler?.Invoke(fileAck.SavedPathOrError);
+                            }
+
                             await _activeStreamWriteLock.WaitAsync(sessionCts.Token);
                             try
                             {
@@ -243,6 +258,14 @@ public sealed class DirectLanStreamHost : IAsyncDisposable
                             finally
                             {
                                 _activeStreamWriteLock.Release();
+                            }
+                        }
+                        else if (envelope.PacketType == "CLIPBOARD_SYNC" && envelope.ClipboardSync is { } clipSync)
+                        {
+                            if (allowInputControl && !string.IsNullOrEmpty(clipSync.Text))
+                            {
+                                _lastKnownClipboardText = clipSync.Text;
+                                _clipboardHandler?.Invoke(clipSync, allowInputControl);
                             }
                         }
                         else if (envelope.PacketType == "DISCONNECT")
@@ -287,6 +310,32 @@ public sealed class DirectLanStreamHost : IAsyncDisposable
                         finally
                         {
                             _activeStreamWriteLock.Release();
+                        }
+                    }
+
+                    // Check remote clipboard periodically (every 15 frames) and push changes back to Operator
+                    if ((sequence % 15 == 0) && _remoteClipboardProvider is not null)
+                    {
+                        var remoteText = _remoteClipboardProvider();
+                        if (!string.IsNullOrEmpty(remoteText) &&
+                            remoteText.Length <= 65536 &&
+                            !string.Equals(remoteText, _lastKnownClipboardText, StringComparison.Ordinal))
+                        {
+                            _lastKnownClipboardText = remoteText;
+                            await _activeStreamWriteLock.WaitAsync(sessionCts.Token);
+                            try
+                            {
+                                await DirectLanTransport.WriteFramedJsonAsync(
+                                    sslStream,
+                                    new DirectLanWireEnvelope(
+                                        "CLIPBOARD_SYNC",
+                                        ClipboardSync: new ClipboardSyncPacket(req.SessionId, remoteText, TriggerPaste: false)),
+                                    sessionCts.Token);
+                            }
+                            finally
+                            {
+                                _activeStreamWriteLock.Release();
+                            }
                         }
                     }
 

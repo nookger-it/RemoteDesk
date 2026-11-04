@@ -34,6 +34,8 @@ public sealed class HybridLanTransportOrchestrator : IRemoteTransport, IStreamQu
 
     public event Action<FileTransferAckPacket>? FileTransferAckReceived;
 
+    public event Action<ClipboardSyncPacket>? ClipboardSyncReceived;
+
     public async Task<TransportConnectionResult> ConnectAsync(
         SessionConnectionInfo session,
         CancellationToken cancellationToken)
@@ -100,6 +102,11 @@ public sealed class HybridLanTransportOrchestrator : IRemoteTransport, IStreamQu
             ? fileTransport.SendFileChunkAsync(chunk, cancellationToken)
             : throw new NotSupportedException("Active transport does not support file transfer.");
 
+    public Task SendClipboardSyncAsync(ClipboardSyncPacket clipboard, CancellationToken cancellationToken) =>
+        _activeTransport is IFileTransferTransport fileTransport
+            ? fileTransport.SendClipboardSyncAsync(clipboard, cancellationToken)
+            : Task.CompletedTask;
+
     public StreamTelemetrySnapshot GetTelemetrySnapshot() =>
         _activeTransport?.GetTelemetrySnapshot() ?? new StreamTelemetrySnapshot(0, 0, 0, 0, 0);
 
@@ -128,6 +135,7 @@ public sealed class HybridLanTransportOrchestrator : IRemoteTransport, IStreamQu
         if (transport is IFileTransferTransport ft)
         {
             ft.FileTransferAckReceived += OnFileTransferAckReceived;
+            ft.ClipboardSyncReceived += OnClipboardSyncReceived;
         }
     }
 
@@ -139,6 +147,7 @@ public sealed class HybridLanTransportOrchestrator : IRemoteTransport, IStreamQu
         if (transport is IFileTransferTransport ft)
         {
             ft.FileTransferAckReceived -= OnFileTransferAckReceived;
+            ft.ClipboardSyncReceived -= OnClipboardSyncReceived;
         }
     }
 
@@ -146,5 +155,6 @@ public sealed class HybridLanTransportOrchestrator : IRemoteTransport, IStreamQu
     private void OnInputAckReceived(InputControlAckPacket ack) => InputAckReceived?.Invoke(ack);
     private void OnRemoteDisconnected(SessionDisconnectPacket disc) => RemoteDisconnected?.Invoke(disc);
     private void OnFileTransferAckReceived(FileTransferAckPacket ack) => FileTransferAckReceived?.Invoke(ack);
+    private void OnClipboardSyncReceived(ClipboardSyncPacket clip) => ClipboardSyncReceived?.Invoke(clip);
 }
 

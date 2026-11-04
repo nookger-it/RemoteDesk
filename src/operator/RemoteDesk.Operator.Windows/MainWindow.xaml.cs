@@ -32,6 +32,7 @@ public partial class MainWindow : Window
     private bool _allowInputControl;
     private byte[]? _lastFrameBytes;
     private string _connectedHostname = "RemotePC";
+    private string? _lastSyncedClipboardText;
     private DateTimeOffset _lastMouseMoveSent = DateTimeOffset.MinValue;
 
     public MainWindow()
@@ -112,6 +113,7 @@ public partial class MainWindow : Window
                 new DirectLanTransport(),
                 new LocalRelayTransport());
             orchestrator.FileTransferAckReceived += OnFileTransferAckReceived;
+            orchestrator.ClipboardSyncReceived += OnClipboardSyncReceived;
             _activeTransport = orchestrator;
             _activeTransport.FrameReceived += OnFrameReceived;
             _activeTransport.InputAckReceived += OnInputAckReceived;
@@ -171,8 +173,31 @@ public partial class MainWindow : Window
         }
     }
 
+    private void Window_PreviewDragOver(object sender, DragEventArgs e)
+    {
+        if (_allowInputControl && _activeTransport is IFileTransferTransport && e.Data.GetDataPresent(DataFormats.FileDrop))
+        {
+            e.Effects = DragDropEffects.Copy;
+            DragDropOverlayBorder.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            e.Effects = DragDropEffects.None;
+        }
+
+        e.Handled = true;
+    }
+
+    private void Window_PreviewDragLeave(object sender, DragEventArgs e)
+    {
+        DragDropOverlayBorder.Visibility = Visibility.Collapsed;
+    }
+
     private async void RemoteScreen_Drop(object sender, DragEventArgs e)
     {
+        DragDropOverlayBorder.Visibility = Visibility.Collapsed;
+        e.Handled = true;
+
         if (!_allowInputControl || _activeTransport is not IFileTransferTransport || !_activeSessionId.HasValue)
         {
             return;
@@ -180,10 +205,15 @@ public partial class MainWindow : Window
 
         if (e.Data.GetDataPresent(DataFormats.FileDrop) &&
             e.Data.GetData(DataFormats.FileDrop) is string[] files &&
-            files.Length > 0 &&
-            File.Exists(files[0]))
+            files.Length > 0)
         {
-            await SendFileOverTransportAsync(files[0]);
+            foreach (var file in files)
+            {
+                if (File.Exists(file))
+                {
+                    await SendFileOverTransportAsync(file);
+                }
+            }
         }
     }
 
@@ -256,12 +286,34 @@ public partial class MainWindow : Window
 
             if (ack.Completed)
             {
-                StatusTextBlock.Text = $"File '{ack.FileName}' saved on {_connectedHostname} -> Desktop\\RemoteDesk_ReceivedFiles\\{ack.FileName}";
+                StatusTextBlock.Text = $"File '{ack.FileName}' saved on {_connectedHostname} (Desktop\\RemoteDesk_ReceivedFiles + Ready to Ctrl+V)";
             }
             else
             {
                 int pct = (int)Math.Round(((ack.ChunkIndex + 1) * 100.0) / Math.Max(1, ack.TotalChunks));
                 StatusTextBlock.Text = $"Sending '{ack.FileName}'... {pct}% ({ack.ChunkIndex + 1}/{ack.TotalChunks})";
+            }
+        });
+    }
+
+    private void OnClipboardSyncReceived(ClipboardSyncPacket clip)
+    {
+        if (string.IsNullOrEmpty(clip.Text))
+        {
+            return;
+        }
+
+        Dispatcher.InvokeAsync(() =>
+        {
+            try
+            {
+                _lastSyncedClipboardText = clip.Text;
+                Clipboard.SetText(clip.Text);
+                StatusTextBlock.Text = $"Clipboard synced from {_connectedHostname} ({clip.Text.Length} chars)";
+            }
+            catch
+            {
+                // Ignore transient clipboard lock
             }
         });
     }
@@ -333,7 +385,7 @@ public partial class MainWindow : Window
 
     private async void SendClipboardBtn_Click(object sender, RoutedEventArgs e)
     {
-        if (!_allowInputControl || _activeTransport is null || !_activeSessionId.HasValue)
+        if (!_allowInputControl || _activeTransport is not IFileTransferTransport fileTransport || !_activeSessionId.HasValue)
         {
             return;
         }
@@ -350,21 +402,12 @@ public partial class MainWindow : Window
             return;
         }
 
-        var clipped = text.Length > 120 ? text[..120] : text;
-        int sent = 0;
-        foreach (var ch in clipped.ToUpperInvariant())
-        {
-            if (ch is >= 'A' and <= 'Z' or >= '0' and <= '9' or ' ')
-            {
-                int vk = ch;
-                var ts = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-                await SendInputSafeAsync(new RemoteInputEventPacket(_activeSessionId.Value, RemoteInputEventType.KeyDown, 0, 0, MouseButtonType.None, 0, vk, ts));
-                await SendInputSafeAsync(new RemoteInputEventPacket(_activeSessionId.Value, RemoteInputEventType.KeyUp, 0, 0, MouseButtonType.None, 0, vk, ts));
-                sent++;
-            }
-        }
+        _lastSyncedClipboardText = text;
+        await fileTransport.SendClipboardSyncAsync(
+            new ClipboardSyncPacket(_activeSessionId.Value, text, TriggerPaste: true),
+            CancellationToken.None);
 
-        StatusTextBlock.Text = $"Sent {sent} character(s) from clipboard to {_connectedHostname}";
+        StatusTextBlock.Text = $"Pasted {text.Length} character(s) from clipboard to {_connectedHostname}";
     }
 
     private void FullScreenBtn_Click(object sender, RoutedEventArgs e)
@@ -474,7 +517,34 @@ public partial class MainWindow : Window
             return;
         }
 
-        var vk = KeyInterop.VirtualKeyFromKey(e.Key);
+        // Intercept Ctrl+V: push local Unicode clipboard (Thai/English/multiline) to Remote PC and trigger paste
+        if ((Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control &&
+            e.Key == Key.V &&
+            _activeTransport is IFileTransferTransport fileTransport &&
+            Clipboard.ContainsText())
+        {
+            try
+            {
+                var text = Clipboard.GetText();
+                if (!string.IsNullOrEmpty(text))
+                {
+                    e.Handled = true;
+                    _lastSyncedClipboardText = text;
+                    await fileTransport.SendClipboardSyncAsync(
+                        new ClipboardSyncPacket(_activeSessionId.Value, text, TriggerPaste: true),
+                        CancellationToken.None);
+                    StatusTextBlock.Text = $"Ctrl+V: Pasted {text.Length} character(s) to {_connectedHostname}";
+                    return;
+                }
+            }
+            catch
+            {
+                // Fall back to standard key injection if clipboard is busy
+            }
+        }
+
+        var actualKey = e.Key == Key.System ? e.SystemKey : e.Key;
+        var vk = KeyInterop.VirtualKeyFromKey(actualKey);
         await SendInputSafeAsync(new RemoteInputEventPacket(
             _activeSessionId.Value,
             RemoteInputEventType.KeyDown,
@@ -493,7 +563,8 @@ public partial class MainWindow : Window
             return;
         }
 
-        var vk = KeyInterop.VirtualKeyFromKey(e.Key);
+        var actualKey = e.Key == Key.System ? e.SystemKey : e.Key;
+        var vk = KeyInterop.VirtualKeyFromKey(actualKey);
         await SendInputSafeAsync(new RemoteInputEventPacket(
             _activeSessionId.Value,
             RemoteInputEventType.KeyUp,
@@ -615,6 +686,33 @@ public partial class MainWindow : Window
         TelemetryLatencyText.Text = $"Latency: {snapshot.AverageLatencyMs:F1} ms";
         TelemetryBandwidthText.Text = $"Bandwidth: {snapshot.BandwidthKbps:F1} kbps";
         TelemetryFramesText.Text = $"Frames: {snapshot.TotalFramesReceived}";
+
+        // Auto-sync Operator clipboard changes to the Remote PC in the background
+        if (_allowInputControl &&
+            _activeSessionId.HasValue &&
+            _activeTransport is IFileTransferTransport fileTransport)
+        {
+            try
+            {
+                if (Clipboard.ContainsText())
+                {
+                    var currentText = Clipboard.GetText();
+                    if (!string.IsNullOrEmpty(currentText) &&
+                        currentText.Length <= 65536 &&
+                        !string.Equals(currentText, _lastSyncedClipboardText, StringComparison.Ordinal))
+                    {
+                        _lastSyncedClipboardText = currentText;
+                        _ = fileTransport.SendClipboardSyncAsync(
+                            new ClipboardSyncPacket(_activeSessionId.Value, currentText, TriggerPaste: false),
+                            CancellationToken.None);
+                    }
+                }
+            }
+            catch
+            {
+                // Ignore transient clipboard access contention
+            }
+        }
     }
 
     private async Task DisconnectCurrentSessionAsync()
@@ -626,6 +724,7 @@ public partial class MainWindow : Window
             if (_activeTransport is IFileTransferTransport ft)
             {
                 ft.FileTransferAckReceived -= OnFileTransferAckReceived;
+                ft.ClipboardSyncReceived -= OnClipboardSyncReceived;
             }
             _activeTransport.FrameReceived -= OnFrameReceived;
             _activeTransport.InputAckReceived -= OnInputAckReceived;
