@@ -7,7 +7,7 @@ namespace RemoteDesk.Transport.Abstractions;
 /// 1. Try Direct LAN first (low latency, zero server bandwidth).
 /// 2. If Direct LAN fails or times out (cross-subnet / firewall), automatically fallback to Local Server Relay.
 /// </summary>
-public sealed class HybridLanTransportOrchestrator : IRemoteTransport, IStreamQualityControl
+public sealed class HybridLanTransportOrchestrator : IRemoteTransport, IStreamQualityControl, IFileTransferTransport
 {
     private readonly IRemoteTransport _directTransport;
     private readonly IRemoteTransport _relayTransport;
@@ -31,6 +31,8 @@ public sealed class HybridLanTransportOrchestrator : IRemoteTransport, IStreamQu
     public event Action<InputControlAckPacket>? InputAckReceived;
 
     public event Action<SessionDisconnectPacket>? RemoteDisconnected;
+
+    public event Action<FileTransferAckPacket>? FileTransferAckReceived;
 
     public async Task<TransportConnectionResult> ConnectAsync(
         SessionConnectionInfo session,
@@ -93,6 +95,11 @@ public sealed class HybridLanTransportOrchestrator : IRemoteTransport, IStreamQu
             ? qualityControl.SetQualityProfileAsync(profile, cancellationToken)
             : Task.CompletedTask;
 
+    public Task SendFileChunkAsync(FileTransferPacket chunk, CancellationToken cancellationToken) =>
+        _activeTransport is IFileTransferTransport fileTransport
+            ? fileTransport.SendFileChunkAsync(chunk, cancellationToken)
+            : throw new NotSupportedException("Active transport does not support file transfer.");
+
     public StreamTelemetrySnapshot GetTelemetrySnapshot() =>
         _activeTransport?.GetTelemetrySnapshot() ?? new StreamTelemetrySnapshot(0, 0, 0, 0, 0);
 
@@ -118,6 +125,10 @@ public sealed class HybridLanTransportOrchestrator : IRemoteTransport, IStreamQu
         transport.FrameReceived += OnFrameReceived;
         transport.InputAckReceived += OnInputAckReceived;
         transport.RemoteDisconnected += OnRemoteDisconnected;
+        if (transport is IFileTransferTransport ft)
+        {
+            ft.FileTransferAckReceived += OnFileTransferAckReceived;
+        }
     }
 
     private void DetachEvents(IRemoteTransport transport)
@@ -125,10 +136,15 @@ public sealed class HybridLanTransportOrchestrator : IRemoteTransport, IStreamQu
         transport.FrameReceived -= OnFrameReceived;
         transport.InputAckReceived -= OnInputAckReceived;
         transport.RemoteDisconnected -= OnRemoteDisconnected;
+        if (transport is IFileTransferTransport ft)
+        {
+            ft.FileTransferAckReceived -= OnFileTransferAckReceived;
+        }
     }
 
     private void OnFrameReceived(ScreenFramePacket frame) => FrameReceived?.Invoke(frame);
     private void OnInputAckReceived(InputControlAckPacket ack) => InputAckReceived?.Invoke(ack);
     private void OnRemoteDisconnected(SessionDisconnectPacket disc) => RemoteDisconnected?.Invoke(disc);
+    private void OnFileTransferAckReceived(FileTransferAckPacket ack) => FileTransferAckReceived?.Invoke(ack);
 }
 

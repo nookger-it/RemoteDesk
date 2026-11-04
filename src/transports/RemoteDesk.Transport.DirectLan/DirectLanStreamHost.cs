@@ -229,6 +229,22 @@ public sealed class DirectLanStreamHost : IAsyncDisposable
                         {
                             _qualityHandler?.Invoke(qualityProfile);
                         }
+                        else if (envelope.PacketType == "FILE_CHUNK" && envelope.FileChunk is { } fileChunk)
+                        {
+                            var fileAck = await ProcessIncomingFileChunkAsync(fileChunk, allowInputControl);
+                            await _activeStreamWriteLock.WaitAsync(sessionCts.Token);
+                            try
+                            {
+                                await DirectLanTransport.WriteFramedJsonAsync(
+                                    sslStream,
+                                    new DirectLanWireEnvelope("FILE_ACK", FileAck: fileAck),
+                                    sessionCts.Token);
+                            }
+                            finally
+                            {
+                                _activeStreamWriteLock.Release();
+                            }
+                        }
                         else if (envelope.PacketType == "DISCONNECT")
                         {
                             SessionEndedByPeerOrLocal?.Invoke(req.SessionId, envelope.Disconnect?.Reason ?? "Operator disconnected");
@@ -320,6 +336,80 @@ public sealed class DirectLanStreamHost : IAsyncDisposable
             _ephemeralCert.Dispose();
             _cts?.Dispose();
             _activeStreamWriteLock.Dispose();
+        }
+    }
+
+    private static async Task<FileTransferAckPacket> ProcessIncomingFileChunkAsync(
+        FileTransferPacket chunk,
+        bool allowInputControl)
+    {
+        if (!allowInputControl)
+        {
+            return new FileTransferAckPacket(
+                chunk.SessionId,
+                chunk.TransferId,
+                chunk.FileName,
+                chunk.ChunkIndex,
+                chunk.TotalChunks,
+                Completed: false,
+                Accepted: false,
+                SavedPathOrError: "Permission denied: Session is View-Only.");
+        }
+
+        try
+        {
+            var safeName = Path.GetFileName(chunk.FileName);
+            if (string.IsNullOrWhiteSpace(safeName))
+            {
+                safeName = $"file_{chunk.TransferId:N}.bin";
+            }
+
+            var desktopDir = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+            if (string.IsNullOrWhiteSpace(desktopDir))
+            {
+                desktopDir = AppContext.BaseDirectory;
+            }
+
+            var receiveDir = Path.Combine(desktopDir, "RemoteDesk_ReceivedFiles");
+            Directory.CreateDirectory(receiveDir);
+            var targetPath = Path.Combine(receiveDir, safeName);
+
+            var fileMode = chunk.ChunkIndex == 0 ? FileMode.Create : FileMode.Append;
+            await using (var fs = new FileStream(targetPath, fileMode, FileAccess.Write, FileShare.Read, 65536, useAsync: true))
+            {
+                if (chunk.Data is { Length: > 0 })
+                {
+                    await fs.WriteAsync(chunk.Data);
+                }
+            }
+
+            bool completed = (chunk.ChunkIndex + 1) >= Math.Max(1, chunk.TotalChunks);
+            if (completed)
+            {
+                Console.WriteLine($"[Agent.Interactive] Received file '{safeName}' ({chunk.TotalBytes:N0} bytes) -> {targetPath}");
+            }
+
+            return new FileTransferAckPacket(
+                chunk.SessionId,
+                chunk.TransferId,
+                safeName,
+                chunk.ChunkIndex,
+                chunk.TotalChunks,
+                Completed: completed,
+                Accepted: true,
+                SavedPathOrError: targetPath);
+        }
+        catch (Exception ex)
+        {
+            return new FileTransferAckPacket(
+                chunk.SessionId,
+                chunk.TransferId,
+                chunk.FileName,
+                chunk.ChunkIndex,
+                chunk.TotalChunks,
+                Completed: false,
+                Accepted: false,
+                SavedPathOrError: ex.Message);
         }
     }
 

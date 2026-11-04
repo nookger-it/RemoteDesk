@@ -7,6 +7,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
+using Microsoft.Win32;
 using RemoteDesk.Contracts.Sessions;
 using RemoteDesk.Transport.Abstractions;
 using RemoteDesk.Transport.DirectLan;
@@ -107,9 +108,11 @@ public partial class MainWindow : Window
             }
 
             _activeSessionId = sessionResp.ConnectionInfo.SessionId;
-            _activeTransport = new HybridLanTransportOrchestrator(
+            var orchestrator = new HybridLanTransportOrchestrator(
                 new DirectLanTransport(),
                 new LocalRelayTransport());
+            orchestrator.FileTransferAckReceived += OnFileTransferAckReceived;
+            _activeTransport = orchestrator;
             _activeTransport.FrameReceived += OnFrameReceived;
             _activeTransport.InputAckReceived += OnInputAckReceived;
             _activeTransport.RemoteDisconnected += OnRemoteDisconnected;
@@ -126,6 +129,7 @@ public partial class MainWindow : Window
             ConnectBtn.IsEnabled = false;
             DisconnectBtn.IsEnabled = true;
             SnapshotBtn.IsEnabled = true;
+            SendFileBtn.IsEnabled = _allowInputControl;
             SendClipboardBtn.IsEnabled = _allowInputControl;
             AllowInputCheckBox.IsEnabled = false;
             _connectedHostname = selected.Device.Hostname;
@@ -146,6 +150,120 @@ public partial class MainWindow : Window
     private async void DisconnectBtn_Click(object sender, RoutedEventArgs e)
     {
         await DisconnectCurrentSessionAsync();
+    }
+
+    private async void SendFileBtn_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_allowInputControl || _activeTransport is not IFileTransferTransport || !_activeSessionId.HasValue)
+        {
+            return;
+        }
+
+        var dlg = new OpenFileDialog
+        {
+            Title = "Select a file to send to the Remote PC (Desktop\\RemoteDesk_ReceivedFiles)",
+            CheckFileExists = true
+        };
+
+        if (dlg.ShowDialog(this) == true)
+        {
+            await SendFileOverTransportAsync(dlg.FileName);
+        }
+    }
+
+    private async void RemoteScreen_Drop(object sender, DragEventArgs e)
+    {
+        if (!_allowInputControl || _activeTransport is not IFileTransferTransport || !_activeSessionId.HasValue)
+        {
+            return;
+        }
+
+        if (e.Data.GetDataPresent(DataFormats.FileDrop) &&
+            e.Data.GetData(DataFormats.FileDrop) is string[] files &&
+            files.Length > 0 &&
+            File.Exists(files[0]))
+        {
+            await SendFileOverTransportAsync(files[0]);
+        }
+    }
+
+    private async Task SendFileOverTransportAsync(string filePath)
+    {
+        if (_activeTransport is not IFileTransferTransport fileTransport || !_activeSessionId.HasValue)
+        {
+            return;
+        }
+
+        try
+        {
+            var info = new FileInfo(filePath);
+            var transferId = Guid.NewGuid();
+            const int chunkSize = 128 * 1024; // 128 KB chunks for smooth concurrent video streaming
+            int totalChunks = (int)Math.Max(1, (info.Length + chunkSize - 1) / chunkSize);
+
+            SendFileBtn.IsEnabled = false;
+            StatusTextBlock.Text = $"Sending '{info.Name}' ({info.Length / 1024.0:F1} KB)...";
+
+            await using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, chunkSize, useAsync: true);
+            var buffer = new byte[chunkSize];
+            int chunkIndex = 0;
+
+            while (true)
+            {
+                int read = await fs.ReadAsync(buffer);
+                if (read == 0 && chunkIndex > 0)
+                {
+                    break;
+                }
+
+                var slice = read > 0 ? buffer[..read] : [];
+                var pkt = new FileTransferPacket(
+                    _activeSessionId.Value,
+                    transferId,
+                    info.Name,
+                    info.Length,
+                    chunkIndex,
+                    totalChunks,
+                    slice);
+
+                await fileTransport.SendFileChunkAsync(pkt, CancellationToken.None);
+                chunkIndex++;
+                if (read == 0 || chunkIndex >= totalChunks)
+                {
+                    break;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            StatusTextBlock.Text = $"File transfer failed: {ex.Message}";
+        }
+        finally
+        {
+            SendFileBtn.IsEnabled = _allowInputControl && _activeTransport is not null;
+        }
+    }
+
+    private void OnFileTransferAckReceived(FileTransferAckPacket ack)
+    {
+        Dispatcher.InvokeAsync(() =>
+        {
+            if (!ack.Accepted)
+            {
+                StatusTextBlock.Text = $"File transfer rejected: {ack.SavedPathOrError}";
+                return;
+            }
+
+            if (ack.Completed)
+            {
+                StatusTextBlock.Text = $"File '{ack.FileName}' saved on {_connectedHostname} -> Desktop\\RemoteDesk_ReceivedFiles\\{ack.FileName}";
+            }
+            else
+            {
+                int pct = (int)Math.Round(((ack.ChunkIndex + 1) * 100.0) / Math.Max(1, ack.TotalChunks));
+                StatusTextBlock.Text = $"Sending '{ack.FileName}'... {pct}% ({ack.ChunkIndex + 1}/{ack.TotalChunks})";
+            }
+        });
     }
 
     private void QualityComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -505,6 +623,10 @@ public partial class MainWindow : Window
 
         if (_activeTransport is not null)
         {
+            if (_activeTransport is IFileTransferTransport ft)
+            {
+                ft.FileTransferAckReceived -= OnFileTransferAckReceived;
+            }
             _activeTransport.FrameReceived -= OnFrameReceived;
             _activeTransport.InputAckReceived -= OnInputAckReceived;
             _activeTransport.RemoteDisconnected -= OnRemoteDisconnected;
@@ -533,6 +655,7 @@ public partial class MainWindow : Window
         ConnectBtn.IsEnabled = true;
         DisconnectBtn.IsEnabled = false;
         SnapshotBtn.IsEnabled = false;
+        SendFileBtn.IsEnabled = false;
         SendClipboardBtn.IsEnabled = false;
         AllowInputCheckBox.IsEnabled = true;
         _lastFrameBytes = null;

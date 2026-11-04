@@ -32,6 +32,7 @@
                     </ComboBox>
                     <Button x:Name="ConnectBtn" Content="Connect (LAN)" Padding="10,6" Background="#0284C7" Foreground="White" FontWeight="SemiBold" Margin="0,0,6,0" Click="ConnectBtn_Click"/>
                     <Button x:Name="DisconnectBtn" Content="Disconnect" Padding="10,6" Background="#DC2626" Foreground="White" FontWeight="SemiBold" IsEnabled="False" Margin="0,0,6,0" Click="DisconnectBtn_Click"/>
+                    <Button x:Name="SendFileBtn" Content="Send File" Padding="8,6" Background="#059669" Foreground="White" FontWeight="SemiBold" IsEnabled="False" Margin="0,0,6,0" ToolTip="Send a file over encrypted Direct LAN (or drag &amp; drop onto screen)" Click="SendFileBtn_Click"/>
                     <Button x:Name="SnapshotBtn" Content="Snapshot" Padding="8,6" Background="#334155" Foreground="White" IsEnabled="False" Margin="0,0,6,0" Click="SnapshotBtn_Click"/>
                     <Button x:Name="SendClipboardBtn" Content="Send Text" Padding="8,6" Background="#334155" Foreground="White" IsEnabled="False" Margin="0,0,6,0" Click="SendClipboardBtn_Click"/>
                     <Button x:Name="FullScreenBtn" Content="Full Screen" Padding="8,6" Background="#334155" Foreground="White" Click="FullScreenBtn_Click"/>
@@ -53,7 +54,7 @@
         </Border>
 
         <!-- Remote Screen Viewer Canvas -->
-        <Border Grid.Row="2" Background="#020617" BorderBrush="#334155" BorderThickness="1" CornerRadius="8" ClipToBounds="True">
+        <Border Grid.Row="2" Background="#020617" BorderBrush="#334155" BorderThickness="1" CornerRadius="8" ClipToBounds="True" AllowDrop="True" Drop="RemoteScreen_Drop">
             <Grid>
                 <TextBlock x:Name="PlaceholderText"
                            Text="Select an Online Device and click 'Connect (Direct LAN)' to start encrypted real-time screen viewing and input control."

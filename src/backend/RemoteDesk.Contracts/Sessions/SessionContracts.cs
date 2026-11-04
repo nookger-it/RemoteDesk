@@ -208,4 +208,24 @@ public sealed record AuditLogDto(
     string SourceIp,
     DateTimeOffset CreatedAt);
 
+public sealed record FileTransferPacket(
+    Guid SessionId,
+    Guid TransferId,
+    string FileName,
+    long TotalBytes,
+    int ChunkIndex,
+    int TotalChunks,
+    byte[] Data);
+
+public sealed record FileTransferAckPacket(
+    Guid SessionId,
+    Guid TransferId,
+    string FileName,
+    int ChunkIndex,
+    int TotalChunks,
+    bool Completed,
+    bool Accepted,
+    string? SavedPathOrError);
+
+
 

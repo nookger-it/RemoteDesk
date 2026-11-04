@@ -26,9 +26,11 @@ internal sealed record DirectLanWireEnvelope(
     RemoteInputEventPacket? Input = null,
     InputControlAckPacket? InputAck = null,
     SessionDisconnectPacket? Disconnect = null,
-    StreamQualityProfile? Quality = null);
+    StreamQualityProfile? Quality = null,
+    FileTransferPacket? FileChunk = null,
+    FileTransferAckPacket? FileAck = null);
 
-public sealed class DirectLanTransport : IRemoteTransport, IStreamQualityControl
+public sealed class DirectLanTransport : IRemoteTransport, IStreamQualityControl, IFileTransferTransport
 {
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private TcpClient? _tcpClient;
@@ -57,6 +59,8 @@ public sealed class DirectLanTransport : IRemoteTransport, IStreamQualityControl
     public event Action<InputControlAckPacket>? InputAckReceived;
 
     public event Action<SessionDisconnectPacket>? RemoteDisconnected;
+
+    public event Action<FileTransferAckPacket>? FileTransferAckReceived;
 
     public async Task<TransportConnectionResult> ConnectAsync(
         SessionConnectionInfo session,
@@ -184,6 +188,22 @@ public sealed class DirectLanTransport : IRemoteTransport, IStreamQualityControl
         }
     }
 
+    public async Task SendFileChunkAsync(FileTransferPacket chunk, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(chunk);
+        var stream = _sslStream ?? throw new InvalidOperationException("DirectLanTransport is not connected.");
+
+        await _writeLock.WaitAsync(cancellationToken);
+        try
+        {
+            await WriteFramedJsonAsync(stream, new DirectLanWireEnvelope("FILE_CHUNK", FileChunk: chunk), cancellationToken);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
     public StreamTelemetrySnapshot GetTelemetrySnapshot()
     {
         var frames = Interlocked.Read(ref _totalFrames);
@@ -292,6 +312,10 @@ public sealed class DirectLanTransport : IRemoteTransport, IStreamQualityControl
                 else if (envelope.PacketType == "INPUT_ACK" && envelope.InputAck is { } ack)
                 {
                     InputAckReceived?.Invoke(ack);
+                }
+                else if (envelope.PacketType == "FILE_ACK" && envelope.FileAck is { } fileAck)
+                {
+                    FileTransferAckReceived?.Invoke(fileAck);
                 }
                 else if (envelope.PacketType == "DISCONNECT" && envelope.Disconnect is { } disc)
                 {

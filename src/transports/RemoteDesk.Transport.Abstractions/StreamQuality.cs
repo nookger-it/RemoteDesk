@@ -49,3 +49,17 @@ public interface IStreamQualityControl
 {
     Task SetQualityProfileAsync(StreamQualityProfile profile, CancellationToken cancellationToken);
 }
+
+/// <summary>
+/// Optional capability implemented by transports that support encrypted chunked file transfer
+/// from the Operator Client to the Agent PC.
+/// </summary>
+public interface IFileTransferTransport
+{
+    event Action<RemoteDesk.Contracts.Sessions.FileTransferAckPacket>? FileTransferAckReceived;
+
+    Task SendFileChunkAsync(
+        RemoteDesk.Contracts.Sessions.FileTransferPacket chunk,
+        CancellationToken cancellationToken);
+}
+
